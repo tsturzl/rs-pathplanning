@@ -112,15 +112,15 @@ impl Space {
     }
 }
 
-pub struct Node {
+pub struct Node<'b> {
     point: Point<f64>,
-    children: Vec<Arc<Node>>,
+    children: Vec<&'b Node<'b>>,
     cost: f64,
 } 
 
-impl Node {
-    pub fn add_child(&mut self, node: Arc<Node>) {
-        self.children.push(node.clone());
+impl<'b> Node<'b> {
+    pub fn add_child(&mut self, node: &'b Node<'b>) {
+        self.children.push(node);
     }
 
     pub fn get_point(&self) -> &Point<f64> {
@@ -150,39 +150,34 @@ pub fn create_line(from: &Node, to: &Node) -> LineString<f64> {
 
 
 #[allow(dead_code)]
-pub struct RRT {
+pub struct RRT<'a> {
     start: Coordinate<f64>,
     goal: Coordinate<f64>,
     space: Space,
-    root: Arc<Node>,
-    nodes: Vec<Arc<Node>>,
+    nodes: Vec<Node<'a>>, // note: root node is the first item in this vector
 }
 
-impl RRT {
-    pub fn new(start: Coordinate<f64>, goal: Coordinate<f64>, space: Space) -> RRT {
-        let root = Arc::new(Node { point: start.into(), children: vec![], cost: 0.0});
-        let mut rrt = RRT {
+impl<'a> RRT<'a> {
+    pub fn new(start: Coordinate<f64>, goal: Coordinate<f64>, space: Space) -> RRT<'a> {
+        let root = Node { point: start.into(), children: vec![], cost: 0.0};
+        let rrt = RRT {
             start,
             goal,
             space,
-            root: root.clone(),
-            nodes: vec![],
+            nodes: vec![root],
         };
-
-        rrt.nodes.push(rrt.root.clone());
 
         rrt
     }
     
     // The new_node shouldn't be added to the RRT's `nodes` vec yet
     // a KD-Tree could speed this up
-    pub fn get_nearest_node(&self, new_node: &Node) -> Arc<Node> {
+    pub fn get_nearest_node(&self, new_node: &Node) -> &Node {
         let new_point = new_node.get_point();
-        let result: (Arc<Node>, f64) = self.nodes.iter()
-            .map(|_node| {
-                let node = _node.clone();
+        let result: (&Node, f64) = self.nodes.iter()
+            .map(|node| {
                 let p = node.get_point();
-                (node.clone(), new_point.euclidean_distance(p))
+                (node, new_point.euclidean_distance(p))
             })
             .min_by(|a, b| a.1.partial_cmp(&b.1).expect("Node lengths(<f64>) should compare."))
             .expect("Should get the closest node");
