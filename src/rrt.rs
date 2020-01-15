@@ -1,8 +1,8 @@
 use geo::{LineString, Polygon, Rect, Coordinate, Point};
-use geo::algorithm::{intersects::Intersects, contains::Contains};
+use geo::algorithm::{intersects::Intersects, contains::Contains, euclidean_distance::EuclideanDistance};
 use std::f64::consts::PI;
-use std::rand::{task_rng, Rng};
-use std::cmp;
+use std::sync::Arc;
+use rand::{thread_rng, Rng};
 
 pub struct Robot {
     width: f64,
@@ -23,10 +23,10 @@ impl Robot{
         self.turning_radius
     }
 
-    pub fn create_poly(&self, coord: Coordinate<f64>) -> Polygon<f64> {
-        let (x, y) = coord.x_y();
+    pub fn create_poly(&self, point: Coordinate<f64>) -> Polygon<f64> {
+        let (x, y) = point.x_y();
         Rect::new(
-            coord,
+            point,
             Coordinate::<f64> { x: x + self.width, y: y + self.height},
         ).into()
     }
@@ -78,7 +78,8 @@ impl Space {
     }
 
     pub fn rand_point(&self) -> Point<f64> {
-        let points = self.bounds.exterior().into_points();
+        let ext = self.bounds.exterior();
+        let points: Vec<Point<f64>> = ext.points_iter().collect();
         let (fx, fy) = points[0].x_y();
         let mut minx = fx;
         let mut maxx = fx;
@@ -102,58 +103,96 @@ impl Space {
             }
         }
 
-        let randx: f64 = task_rng().gen_range(minx, maxx);
-        let randy: f64 = task_rng().gen_range(miny, maxy);
+        let mut rng = thread_rng();
+
+        let randx: f64 = rng.gen_range(minx, maxx);
+        let randy: f64 = rng.gen_range(miny, maxy);
 
         Point::new(randx, randy)
     }
 }
 
-pub struct Node<'b> {
-    coord: Coordinate<f64>,
-    children: Vec<&'b Node<'b>>,
+pub struct Node {
+    point: Point<f64>,
+    children: Vec<Arc<Node>>,
+    cost: f64,
 } 
 
-impl<'b> Node<'b> {
-    pub fn add_child(&self, node: &'b Node) {
-        self.children.push(node);
+impl Node {
+    pub fn add_child(&mut self, node: Arc<Node>) {
+        self.children.push(node.clone());
+    }
+
+    pub fn get_point(&self) -> &Point<f64> {
+        &self.point
+    }
+
+    pub fn get_coord(&self) -> Coordinate<f64> {
+        self.point.into()
+    }
+
+
+    pub fn get_cost(&self) -> f64 {
+        self.cost
+    }
+
+    pub fn set_cost(&mut self, cost: f64) {
+        self.cost = cost;
     }
 }
 
-pub trait DrawLine {
-    fn draw(&self, node: &Node) -> &LineString<f64>;
+pub fn create_line(from: &Node, to: &Node) -> LineString<f64> {
+    LineString(vec![
+        from.get_coord(),
+        to.get_coord(),
+    ])
 }
 
-pub struct RRT<'a, T: DrawLine> {
-    child_limit: usize,
+
+#[allow(dead_code)]
+pub struct RRT {
     start: Coordinate<f64>,
     goal: Coordinate<f64>,
     space: Space,
-    root: Node<'a>,
-    line_type: T,
+    root: Arc<Node>,
+    nodes: Vec<Arc<Node>>,
 }
 
-impl<'a, T: DrawLine> RRT<'a, T> {
-    pub fn new(start: Coordinate<f64>, goal: Coordinate<f64>, space: Space, line_type: T) -> RRT<'a, T> {
-        RRT::<'a, T> {
-            child_limit: 100,
+impl RRT {
+    pub fn new(start: Coordinate<f64>, goal: Coordinate<f64>, space: Space) -> RRT {
+        let root = Arc::new(Node { point: start.into(), children: vec![], cost: 0.0});
+        let mut rrt = RRT {
             start,
             goal,
             space,
-            line_type,
-            root: Node::<'a> { coord: start, children: vec![]},
-        }
+            root: root.clone(),
+            nodes: vec![],
+        };
+
+        rrt.nodes.push(rrt.root.clone());
+
+        rrt
+    }
+    
+    // The new_node shouldn't be added to the RRT's `nodes` vec yet
+    // a KD-Tree could speed this up
+    pub fn get_nearest_node(&self, new_node: &Node) -> Arc<Node> {
+        let new_point = new_node.get_point();
+        let result: (Arc<Node>, f64) = self.nodes.iter()
+            .map(|_node| {
+                let node = _node.clone();
+                let p = node.get_point();
+                (node.clone(), new_point.euclidean_distance(p))
+            })
+            .min_by(|a, b| a.1.partial_cmp(&b.1).expect("Node lengths(<f64>) should compare."))
+            .expect("Should get the closest node");
+        result.0
     }
 
-    pub fn verify_node(&self, node: &Node) -> bool {
-        let line = self.line_type.draw(node);
-        self.space.verify(&line)
-    }
+    pub fn create_node(&self) -> Node {
+        let point = self.space.rand_point();
+        let node = Node { point, children: vec![], cost: 0.0};
 
-    pub fn create_node(&self) -> &Node {
-        let coord = self.space.rand_point().into();
-        let node = Node { coord, children: vec![]};
-
-        &node
+        node
     }
 }

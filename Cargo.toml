@@ -8,4 +8,4 @@ edition = "2018"
 
 [dependencies]
 geo = "0.12.2"
-geo-types = "0.4.3"
+rand = "0.7"
