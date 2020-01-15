@@ -1,7 +1,6 @@
 use geo::{LineString, Polygon, Rect, Coordinate, Point};
 use geo::algorithm::{intersects::Intersects, contains::Contains, euclidean_distance::EuclideanDistance};
 use std::f64::consts::PI;
-use std::sync::Arc;
 use rand::{thread_rng, Rng};
 
 pub struct Robot {
@@ -153,16 +152,18 @@ pub fn create_line(from: &Node, to: &Node) -> LineString<f64> {
 pub struct RRT<'a> {
     start: Coordinate<f64>,
     goal: Coordinate<f64>,
+    max_iter: usize,
     space: Space,
     nodes: Vec<Node<'a>>, // note: root node is the first item in this vector
 }
 
 impl<'a> RRT<'a> {
-    pub fn new(start: Coordinate<f64>, goal: Coordinate<f64>, space: Space) -> RRT<'a> {
+    pub fn new(start: Coordinate<f64>, goal: Coordinate<f64>, max_iter: usize, space: Space) -> RRT<'a> {
         let root = Node { point: start.into(), children: vec![], cost: 0.0};
         let rrt = RRT {
             start,
             goal,
+            max_iter,
             space,
             nodes: vec![root],
         };
@@ -189,5 +190,8 @@ impl<'a> RRT<'a> {
         let node = Node { point, children: vec![], cost: 0.0};
 
         node
+    }
+
+    pub fn expand(&self) {
     }
 }
