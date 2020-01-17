@@ -62,8 +62,7 @@ impl Space {
     }
 
     pub fn verify(&self, line: &LineString<f64>) -> bool {
-        let line_points = line.to_owned().into_points();
-        let last_point = line_points[line_points.len()];
+        let last_point = line.points_iter().last().expect("Linestring should have a last point");
         let robot_poly = self.robot.create_poly(last_point.into());
 
         if !(self.bounds.contains(line) && self.bounds.contains(&robot_poly)) {
