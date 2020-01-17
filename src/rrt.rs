@@ -22,17 +22,17 @@ impl Robot{
         self.turning_radius
     }
 
-    pub fn create_poly(&self, point: Coordinate<f64>) -> Polygon<f64> {
+    pub fn create_poly(&self, point: Point<f64>) -> Polygon<f64> {
         let (x, y) = point.x_y();
         Rect::new(
             point,
-            Coordinate::<f64> { x: x + self.width, y: y + self.height},
+            Point::new (x + self.width, y + self.height),
         ).into()
     }
 }
 
 // Maybe implement a proper circle type?
-pub fn create_circle(center: Coordinate<f64>, radius: f64) -> Polygon<f64> {
+pub fn create_circle(center: Point<f64>, radius: f64) -> Polygon<f64> {
     let (cx, cy) = center.x_y();
     let circum = 2.0 * PI * radius;
     let n = (circum / 10.0).ceil();
@@ -63,7 +63,7 @@ impl Space {
 
     pub fn verify(&self, line: &LineString<f64>) -> bool {
         let last_point = line.points_iter().last().expect("Linestring should have a last point");
-        let robot_poly = self.robot.create_poly(last_point.into());
+        let robot_poly = self.robot.create_poly(last_point);
 
         if !(self.bounds.contains(line) && self.bounds.contains(&robot_poly)) {
             false
