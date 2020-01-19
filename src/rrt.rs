@@ -1,25 +1,20 @@
 use geo::{LineString, Polygon, Rect, Coordinate, Point};
 use geo::algorithm::{intersects::Intersects, contains::Contains, euclidean_distance::EuclideanDistance};
 use std::f64::consts::PI;
+use std::rc::Rc;
 use rand::{thread_rng, Rng};
 
 pub struct Robot {
     width: f64,
     height: f64,
-    turning_radius: f64,
 }
 
 impl Robot{
-    pub fn new(width: f64, height: f64, turning_radius: f64) -> Robot {
+    pub fn new(width: f64, height: f64) -> Robot {
         Robot {
             width,
             height,
-            turning_radius,
         }
-    }
-
-    pub fn turning_radius(&self) -> f64 {
-        self.turning_radius
     }
 
     pub fn create_poly(&self, point: Point<f64>) -> Polygon<f64> {
@@ -31,13 +26,13 @@ impl Robot{
     }
 }
 
-// Maybe implement a proper circle type?
+// Maybe this will create a more elegant way: https://github.com/georust/geo/issues/414
 pub fn create_circle(center: Point<f64>, radius: f64) -> Polygon<f64> {
     let (cx, cy) = center.x_y();
     let circum = 2.0 * PI * radius;
     let n = (circum / 10.0).ceil();
     let mut points = Vec::<(f64, f64)>::new();
-    for _x in 0..n as usize + 1 {
+    for _x in 0..(n + 1.0) as usize {
         let x = _x as f64;
         
         points.push( (((2.0 * PI / n * x).cos() * radius) + cx, ((2.0 * PI / n *x).sin() * radius) + cy) )
@@ -120,13 +115,13 @@ impl Space {
 
 pub struct Node {
     point: Point<f64>,
-    children: Vec<Box<Node>>,
+    parent: Option<Rc<Node>>,
     cost: f64,
 } 
 
 impl Node {
-    pub fn add_child(&mut self, node: Box<Node>) {
-        self.children.push(node);
+    pub fn get_parent(&self) -> Option<Rc<Node>> {
+        self.parent.clone()
     }
 
     pub fn get_point(&self) -> &Point<f64> {
@@ -147,7 +142,7 @@ impl Node {
     }
 }
 
-pub fn create_line(from: Box<Node>, to: Box<Node>) -> LineString<f64> {
+pub fn create_line(from: Rc<Node>, to: Rc<Node>) -> LineString<f64> {
     LineString(vec![
         from.get_coord(),
         to.get_coord(),
@@ -155,77 +150,92 @@ pub fn create_line(from: Box<Node>, to: Box<Node>) -> LineString<f64> {
 }
 
 
-#[allow(dead_code)]
 pub struct RRT {
-    start: Coordinate<f64>,
     goal: Coordinate<f64>,
     max_iter: usize,
-    goal_sample_rate: usize,
     space: Space,
-    nodes: Vec<Box<Node>>, // note: root node is the first item in this vector
+    nodes: Vec<Rc<Node>>, // note: root node is the first item in this vector
 }
 
 impl RRT {
     pub fn new(start: Coordinate<f64>, goal: Coordinate<f64>, max_iter: usize, space: Space) -> RRT {
-        let root = Box::new(Node { point: start.into(), children: vec![], cost: 0.0});
-        let rrt = RRT {
-            start,
+        let root = Rc::new(Node { point: start.into(), parent: None, cost: 0.0});
+        RRT {
             goal,
             max_iter,
-            goal_sample_rate: 5,
             space,
             nodes: vec![root],
-        };
-
-        rrt
+        }
     }
     
     // The new_node shouldn't be added to the RRT's `nodes` vec yet
     // a KD-Tree could speed this up
-    pub fn get_nearest_node(&mut self, new_node: Box<Node>) -> Box<Node> {
-        let new_point = new_node.get_point();
-        let result: (Box<Node>, f64) = self.nodes.into_iter()
+    pub fn get_nearest_node(&self, point: &Point<f64>) -> Rc<Node> {
+        let result: (Rc<Node>, f64) = self.nodes.iter()
             .map(|node| {
-                let p = node.get_point();
-                (node, new_point.euclidean_distance(p))
+                (node.clone(), point.euclidean_distance(node.get_point()))
             })
             .min_by(|a, b| a.1.partial_cmp(&b.1).expect("Node lengths(<f64>) should compare."))
             .expect("Should get the closest node");
-        result.0
+        result.0.clone()
     }
 
-    pub fn get_random_node(&self) -> Box<Node> {
-
-        let mut rng = thread_rng();
-
-        if rng.gen_range(0, 100) > self.goal_sample_rate {
-
+    pub fn get_random_node(&self) -> Rc<Node> {
         let point = self.space.rand_point();
-        let node = Node { point, children: vec![], cost: 0.0};
+        let nearest_node = self.get_nearest_node(&point);
 
-        Box::new(node)
-        } else {
-            Box::new(Node { point: self.goal.into(), children: vec![], cost: 0.0})
+        Rc::new(Node { point, parent: Some(nearest_node.clone()), cost: 0.0})
+    }
+
+    pub fn verify_node(&self, node: Rc<Node>) -> bool {
+        match node.clone().get_parent() {
+            Some(parent) => {
+                let line = create_line(parent, node.clone());
+                self.space.verify(&line)
+            },
+            None => false,
         }
     }
 
-    pub fn verify_node(&self, from_node: Box<Node>, to_node: Box<Node>) -> bool {
-        let line = create_line(from_node, to_node);
-        self.space.verify(&line)
+    pub fn check_finish(&self, node: Rc<Node>) -> Option<Rc<Node>> {
+        let goal_node = Rc::new(Node { point: self.goal.into(), parent: Some(node.clone()), cost: 0.0});
+
+        if self.verify_node(goal_node.clone()) {
+            Some(goal_node.clone())
+        } else {
+            None
+        }
+    }
+    
+    pub fn finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {
+        let mut points = vec![];
+        points.push(goal_node.clone().get_coord());
+
+        let mut parent = goal_node.get_parent();
+
+        while let Some(next_parent) = parent.clone() {
+            points.push(next_parent.get_coord());
+            parent = next_parent.get_parent();
+        }
+
+        points.reverse();
+
+        LineString(points)
     }
 
-    #[allow(unused)]
-    pub fn plan(&mut self) {
-        for i in 0..self.max_iter {
+    pub fn plan(&mut self) -> Option<LineString<f64>> {
+        for _i in 0..self.max_iter {
             let rnd_node = self.get_random_node();
-            let nearest_node = self.get_nearest_node(rnd_node);
 
-            if self.verify_node(nearest_node, rnd_node) {
-                self.nodes.push(rnd_node);
-                let new_node = self.nodes[self.nodes.len()];
+            if self.verify_node(rnd_node.clone()) {
+                self.nodes.push(rnd_node.clone());
 
-                nearest_node.add_child(new_node);
+                if let Some(goal_node) = self.check_finish(rnd_node.clone()) {
+                    return Some(self.finalize(goal_node.clone()))
+                }
             }
         }
+
+        None
     }
 }
