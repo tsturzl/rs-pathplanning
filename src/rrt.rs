@@ -116,7 +116,6 @@ impl Space {
 pub struct Node {
     point: Point<f64>,
     parent: Option<Rc<Node>>,
-    cost: f64,
 } 
 
 impl Node {
@@ -130,15 +129,6 @@ impl Node {
 
     pub fn get_coord(&self) -> Coordinate<f64> {
         self.point.into()
-    }
-
-
-    pub fn get_cost(&self) -> f64 {
-        self.cost
-    }
-
-    pub fn set_cost(&mut self, cost: f64) {
-        self.cost = cost;
     }
 }
 
@@ -159,7 +149,7 @@ pub struct RRT {
 
 impl RRT {
     pub fn new(start: Coordinate<f64>, goal: Coordinate<f64>, max_iter: usize, space: Space) -> RRT {
-        let root = Rc::new(Node { point: start.into(), parent: None, cost: 0.0});
+        let root = Rc::new(Node { point: start.into(), parent: None});
         RRT {
             goal,
             max_iter,
@@ -168,7 +158,6 @@ impl RRT {
         }
     }
     
-    // The new_node shouldn't be added to the RRT's `nodes` vec yet
     // a KD-Tree could speed this up
     pub fn get_nearest_node(&self, point: &Point<f64>) -> Rc<Node> {
         let result: (Rc<Node>, f64) = self.nodes.iter()
@@ -184,7 +173,7 @@ impl RRT {
         let point = self.space.rand_point();
         let nearest_node = self.get_nearest_node(&point);
 
-        Rc::new(Node { point, parent: Some(nearest_node.clone()), cost: 0.0})
+        Rc::new(Node { point, parent: Some(nearest_node.clone())})
     }
 
     pub fn verify_node(&self, node: Rc<Node>) -> bool {
@@ -198,7 +187,7 @@ impl RRT {
     }
 
     pub fn check_finish(&self, node: Rc<Node>) -> Option<Rc<Node>> {
-        let goal_node = Rc::new(Node { point: self.goal.into(), parent: Some(node.clone()), cost: 0.0});
+        let goal_node = Rc::new(Node { point: self.goal.into(), parent: Some(node.clone())});
 
         if self.verify_node(goal_node.clone()) {
             Some(goal_node.clone())
