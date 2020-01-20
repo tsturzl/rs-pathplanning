@@ -1,9 +1,8 @@
-use geo::{LineString, Line, Polygon, Rect, Coordinate, Point};
+use geo::{LineString, Polygon, Rect, Coordinate, Point};
 use geo::algorithm::{intersects::Intersects, contains::Contains, euclidean_distance::EuclideanDistance, euclidean_length::EuclideanLength};
 use std::f64::consts::PI;
 use std::rc::Rc;
-use std::cmp::Ordering;
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, rngs::ThreadRng, Rng};
 
 pub struct Robot {
     width: f64,
@@ -50,6 +49,7 @@ pub struct Space {
     bounds: Polygon<f64>,
     robot: Robot,
     obstacles: Vec<Polygon<f64>>,
+    rng: ThreadRng,
     minx: f64,
     maxx: f64,
     miny: f64,
@@ -84,6 +84,7 @@ impl Space {
         }
 
         Space {
+            rng: thread_rng(),
             bounds,
             robot,
             obstacles,
@@ -112,11 +113,9 @@ impl Space {
         }
     }
 
-    pub fn rand_point(&self) -> Point<f64> {
-        let mut rng = thread_rng();
-
-        let randx: f64 = rng.gen_range(self.minx, self.maxx);
-        let randy: f64 = rng.gen_range(self.miny, self.maxy);
+    pub fn rand_point(&mut self) -> Point<f64> {
+        let randx: f64 = self.rng.gen_range(self.minx, self.maxx);
+        let randy: f64 = self.rng.gen_range(self.miny, self.maxy);
 
         Point::new(randx, randy)
     }
@@ -178,7 +177,7 @@ impl RRT {
             .expect("Should get the closest node")
     }
 
-    pub fn get_random_node(&self) -> Option<Rc<Node>> {
+    pub fn get_random_node(&mut self) -> Option<Rc<Node>> {
         let point = self.space.rand_point();
         let (nearest_node, dist) = self.get_nearest_node(&point);
 

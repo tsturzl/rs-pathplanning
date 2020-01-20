@@ -63,5 +63,5 @@ fn main() {
     }
 
     println!("DONE");
-    // fg.show();
+    fg.show();
 }
