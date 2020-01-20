@@ -42,7 +42,7 @@ fn main() {
     let mut planner = RRT::new(
         (0.0, 0.0).into(),
         (60.0, 100.0).into(),
-        5000,
+        1000,
         space
     );
 
@@ -62,5 +62,6 @@ fn main() {
         axes.lines(&ox, &oy, &[Color("red")]);
     }
 
-    fg.show();
+    println!("DONE");
+    // fg.show();
 }
