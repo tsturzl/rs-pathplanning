@@ -42,7 +42,7 @@ fn main() {
     let mut planner = RRT::new(
         (0.0, 0.0).into(),
         (60.0, 100.0).into(),
-        100,
+        5000,
         space
     );
 

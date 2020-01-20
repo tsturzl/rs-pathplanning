@@ -1,7 +1,8 @@
 use geo::{LineString, Line, Polygon, Rect, Coordinate, Point};
-use geo::algorithm::{intersects::Intersects, contains::Contains, euclidean_distance::EuclideanDistance};
+use geo::algorithm::{intersects::Intersects, contains::Contains, euclidean_distance::EuclideanDistance, euclidean_length::EuclideanLength};
 use std::f64::consts::PI;
 use std::rc::Rc;
+use std::cmp::Ordering;
 use rand::{thread_rng, Rng};
 
 pub struct Robot {
@@ -34,7 +35,7 @@ impl Robot{
 pub fn create_circle(center: Point<f64>, radius: f64) -> Polygon<f64> {
     let (cx, cy) = center.x_y();
     let circum = 2.0 * PI * radius;
-    let n = circum.ceil();
+    let n = (circum / 10.0).ceil();
     let mut points = Vec::<(f64, f64)>::new();
     for _x in 0..(n + 1.0) as usize {
         let x = _x as f64;
@@ -92,6 +93,8 @@ impl Space {
             maxy,
         }
     }
+    
+    //pub fn create_buffered_line(&self, from: Rc<Node>, to: Rc<Node>) -> Polygon<f64> {}
 
     pub fn verify(&self, line: &LineString<f64>) -> bool {
         let last_point = line.points_iter().last().expect("Linestring should have a last point");
@@ -148,6 +151,7 @@ pub fn create_line(from: Rc<Node>, to: Rc<Node>) -> LineString<f64> {
 pub struct RRT {
     goal: Coordinate<f64>,
     max_iter: usize,
+    max_dist: f64,
     space: Space,
     nodes: Vec<Rc<Node>>, // note: root node is the first item in this vector
 }
@@ -158,27 +162,31 @@ impl RRT {
         RRT {
             goal,
             max_iter,
+            max_dist: 10000.0,
             space,
             nodes: vec![root],
         }
     }
     
     // a KD-Tree could speed this up
-    pub fn get_nearest_node(&self, point: &Point<f64>) -> Rc<Node> {
-        let result: (Rc<Node>, f64) = self.nodes.iter()
+    pub fn get_nearest_node(&self, point: &Point<f64>) -> (Rc<Node>, f64) {
+        self.nodes.iter()
             .map(|node| {
                 (node.clone(), point.euclidean_distance(node.get_point()))
             })
             .min_by(|a, b| a.1.partial_cmp(&b.1).expect("Node lengths(<f64>) should compare."))
-            .expect("Should get the closest node");
-        result.0.clone()
+            .expect("Should get the closest node")
     }
 
-    pub fn get_random_node(&self) -> Rc<Node> {
+    pub fn get_random_node(&self) -> Option<Rc<Node>> {
         let point = self.space.rand_point();
-        let nearest_node = self.get_nearest_node(&point);
+        let (nearest_node, dist) = self.get_nearest_node(&point);
 
-        Rc::new(Node { point, parent: Some(nearest_node.clone())})
+        if dist <= self.max_dist {
+            Some(Rc::new(Node { point, parent: Some(nearest_node.clone())}))
+        } else {
+            None
+        }
     }
 
     pub fn verify_node(&self, node: Rc<Node>) -> bool {
@@ -200,8 +208,40 @@ impl RRT {
             None
         }
     }
-    
+
+    pub fn optimize(&self, nodes: Vec<Rc<Node>>) -> LineString<f64> {
+        let mut optimized = vec![];
+
+        let len = nodes.len() - 1;
+        for i in 0..len {
+            let line = create_line(nodes[i].clone(), nodes[len].clone());
+            optimized.push(nodes[i].get_coord());
+            if self.space.verify(&line) {
+                optimized.push(nodes[len].get_coord());
+                break;
+            }
+        }
+
+        optimized.reverse();
+
+        LineString(optimized)
+    }
+
     pub fn finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {
+        let mut nodes = vec![];
+        nodes.push(goal_node.clone());
+
+        let mut parent = goal_node.get_parent();
+
+        while let Some(next_parent) = parent.clone() {
+            nodes.push(next_parent.clone());
+            parent = next_parent.get_parent();
+        }
+
+        self.optimize(nodes)
+    }
+    
+    pub fn old_finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {
         let mut points = vec![];
         points.push(goal_node.clone().get_coord());
 
@@ -218,18 +258,27 @@ impl RRT {
     }
 
     pub fn plan(&mut self) -> Option<LineString<f64>> {
+        let mut results: Vec<LineString<f64>> = vec![];
         for _i in 0..self.max_iter {
-            let rnd_node = self.get_random_node();
+            if let Some(rnd_node) = self.get_random_node() {
+                if self.verify_node(rnd_node.clone()) {
+                    self.nodes.push(rnd_node.clone());
 
-            if self.verify_node(rnd_node.clone()) {
-                self.nodes.push(rnd_node.clone());
-
-                if let Some(goal_node) = self.check_finish(rnd_node.clone()) {
-                    return Some(self.finalize(goal_node.clone()))
+                    if let Some(goal_node) = self.check_finish(rnd_node.clone()) {
+                        results.push(self.finalize(goal_node.clone()));
+                    }
                 }
             }
         }
 
-        None
+        if results.len() == 0 {
+            None
+        } else {
+            results.into_iter().min_by(|a, b| {
+                let a_len = a.euclidean_length();
+                let b_len = b.euclidean_length();
+                a_len.partial_cmp(&b_len).expect("Compare length of results")
+            })
+        }
     }
 }
