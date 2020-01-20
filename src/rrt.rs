@@ -1,4 +1,4 @@
-use geo::{LineString, Polygon, Rect, Coordinate, Point};
+use geo::{LineString, Line, Polygon, Rect, Coordinate, Point};
 use geo::algorithm::{intersects::Intersects, contains::Contains, euclidean_distance::EuclideanDistance};
 use std::f64::consts::PI;
 use std::rc::Rc;
@@ -15,6 +15,10 @@ impl Robot{
             width,
             height,
         }
+    }
+
+    pub fn get_dimensions(&self) -> (f64, f64) {
+        (self.width, self.height)
     }
 
     pub fn create_poly(&self, point: Point<f64>) -> Polygon<f64> {
@@ -93,12 +97,14 @@ impl Space {
         let last_point = line.points_iter().last().expect("Linestring should have a last point");
         let robot_poly = self.robot.create_poly(last_point);
 
-        if !(self.bounds.contains(line) && self.bounds.contains(&robot_poly)) {
+        if self.bounds.contains(line) == false && self.bounds.contains(&robot_poly) == false {
+            // println!("Verify: Out of bounds");
             false
         } else {
             let intersected = self.obstacles.iter()
-                .map(|obs| (line.intersects(obs) && robot_poly.intersects(obs)))
-                .fold(false, |acc, x| acc && x);
+                .map(|obs| (line.intersects(obs) || robot_poly.intersects(obs)))
+                .fold(false, |acc, x| acc || x);
+            // println!("Verify result:{:?}", intersected);
             !intersected
         }
     }
@@ -138,7 +144,6 @@ pub fn create_line(from: Rc<Node>, to: Rc<Node>) -> LineString<f64> {
         to.get_coord(),
     ])
 }
-
 
 pub struct RRT {
     goal: Coordinate<f64>,

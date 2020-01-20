@@ -2,7 +2,7 @@ extern crate gnuplot;
 extern crate pathplanning;
 
 use pathplanning::rrt::{Robot, Space, RRT, create_circle};
-use geo::{Point, Polygon, LineString};
+use geo::{Point, Polygon, LineString, Rect, Coordinate};
 use gnuplot::{Figure, Color};
 
 fn main() {
@@ -10,6 +10,9 @@ fn main() {
     let mut fg = Figure::new();
 
     let obstacle_list = vec![
+        // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 10.0, y: 110.0}).into(),
+        // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 90.0, y: 48.0}).into(),
+        // Rect::new(Coordinate{x: 80.0, y: 30.0}, Coordinate{x: 110.0, y: 113.0}).into(),
         create_circle(Point::new(50.0, 50.0), 10.0),
         create_circle(Point::new(30.0, 60.0), 20.0),
         create_circle(Point::new(30.0, 80.0), 20.0),
@@ -20,16 +23,16 @@ fn main() {
     ];
 
     let bounds = Polygon::new(LineString::from(vec![
-            (-250.0, -250.0),
-            (-250.0, 500.0),
-            (500.0, 500.0),
-            (500.0, -250.0),
-            (-250.0, -250.0),
+            (-100.0, -100.0),
+            (-100.0, 200.0),
+            (200.0, 200.0),
+            (200.0, -100.0),
+            (-100.0, -100.0),
         ]), vec![]);
 
     let (bx, by): (Vec<f64>, Vec<f64>) = bounds.exterior().points_iter().map(|p| p.x_y()).unzip();
 
-    let robot = Robot::new(10.0, 5.0);
+    let robot = Robot::new(10.0, 10.0);
     let space = Space::new(
         bounds,
         robot,
@@ -49,12 +52,14 @@ fn main() {
     let (px, py): (Vec<f64>, Vec<f64>) = path.points_iter().map(|p| p.x_y()).unzip();
 
     let axes = fg.axes2d();
-    axes.lines(&px, &py, &[Color("red")]).lines(&bx, &by, &[Color("black")]);
+    axes
+        .lines(&px, &py, &[Color("green")])
+        .lines(&bx, &by, &[Color("black")]);
 
     for obs in obstacle_list.iter() {
         let (ox, oy): (Vec<f64>, Vec<f64>) = obs.exterior().points_iter().map(|p| p.x_y()).unzip();
 
-        axes.lines(&ox, &oy, &[Color("black")]);
+        axes.lines(&ox, &oy, &[Color("red")]);
     }
 
     fg.show();
