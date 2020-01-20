@@ -1,3 +1,5 @@
 /target
+/example/target
+/example/plot.png
 **/*.rs.bk
 Cargo.lock

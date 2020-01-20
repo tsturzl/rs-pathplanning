@@ -1,11 +1,10 @@
 [package]
-name = "pathplanning"
+name = "example"
 version = "0.1.0"
 authors = ["Travis Sturzl <tsturzl@lefthandrobotics.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+pathplanning = { path = ".." }
 geo = "0.12.2"
-rand = "0.7"
+matplotrust = "0.1.7"

@@ -30,7 +30,7 @@ impl Robot{
 pub fn create_circle(center: Point<f64>, radius: f64) -> Polygon<f64> {
     let (cx, cy) = center.x_y();
     let circum = 2.0 * PI * radius;
-    let n = (circum / 10.0).ceil();
+    let n = circum.ceil();
     let mut points = Vec::<(f64, f64)>::new();
     for _x in 0..(n + 1.0) as usize {
         let x = _x as f64;
