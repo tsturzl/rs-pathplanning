@@ -178,7 +178,7 @@ impl RRT {
         let nearest_node = self.get_nearest_node(&point);
 
         self.nodes.push(Node { point, index: self.nodes.len(), parent: Some(nearest_node)});
-        self.nodes.len()
+        self.nodes.len() - 1
     }
 
     pub fn verify_node(&self, node: &Node) -> bool {
@@ -194,7 +194,7 @@ impl RRT {
     pub fn check_finish(&mut self, _node: usize) -> Option<usize> {
         let node = &self.nodes[_node];
         self.nodes.push(Node { point: self.goal.into(), index: self.nodes.len(), parent: Some(node.get_index())});
-        let goal_node = &self.nodes[self.nodes.len()];
+        let goal_node = &self.nodes[self.nodes.len() - 1];
 
         if self.verify_node(goal_node) {
             Some(goal_node.get_index())
