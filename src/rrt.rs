@@ -161,7 +161,7 @@ impl RRT {
         RRT {
             goal,
             max_iter,
-            max_dist: 10000.0,
+            max_dist: 1000.0,
             space,
             nodes: vec![root],
         }
