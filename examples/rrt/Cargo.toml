@@ -1,0 +1,10 @@
+[package]
+name = "example"
+version = "0.1.0"
+authors = ["Travis Sturzl <tsturzl@lefthandrobotics.com>"]
+edition = "2018"
+
+[dependencies]
+pathplanning = { path = ".." }
+geo = "0.12.2"
+gnuplot = "0.0.33"

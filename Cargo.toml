@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 geo = "0.12.2"
 rand = "0.7"
+geo-offset = "0.1.0"
