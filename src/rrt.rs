@@ -1,3 +1,4 @@
+use crate::dubins::{dubins_path_linestring, dubins_path_planning};
 use geo::algorithm::{
     contains::Contains, euclidean_distance::EuclideanDistance, euclidean_length::EuclideanLength,
     intersects::Intersects,
@@ -28,7 +29,7 @@ impl Robot {
 pub fn create_circle(center: Point<f64>, radius: f64) -> Polygon<f64> {
     let (cx, cy) = center.x_y();
     let circum = 2.0 * PI * radius;
-    let n = (circum / 10.0).ceil();
+    let n = (circum / 1.0).ceil();
     let mut points = Vec::<(f64, f64)>::new();
     for _x in 0..(n + 1.0) as usize {
         let x = _x as f64;
@@ -95,7 +96,10 @@ impl Space {
 
         Space {
             rng: thread_rng(),
-            bounds,
+            bounds: buffer_poly(&bounds, -width)
+                .into_iter()
+                .last()
+                .expect("should provide dialated polygon"),
             // robot,
             obstacles,
             minx,
@@ -104,8 +108,6 @@ impl Space {
             maxy,
         }
     }
-
-    //pub fn create_buffered_line(&self, from: Rc<Node>, to: Rc<Node>) -> Polygon<f64> {}
 
     pub fn verify(&self, line: &LineString<f64>) -> bool {
         if !self.bounds.contains(line) {
@@ -132,16 +134,52 @@ impl Space {
     pub fn get_obs(&self) -> Vec<Polygon<f64>> {
         self.obstacles.clone()
     }
+
+    pub fn get_bounds(&self) -> Polygon<f64> {
+        self.bounds.clone()
+    }
 }
 
 pub struct Node {
     point: Point<f64>,
     parent: Option<Rc<Node>>,
+    // angle from self to parent, or the heading angle(eg the start point)
+    yaw: f64,
 }
 
 impl Node {
+    pub fn new(point: Point<f64>, parent: Rc<Node>) -> Node {
+        Node {
+            point,
+            parent: Some(parent.clone()),
+            yaw: compute_yaw(&point, parent.get_point()),
+        }
+    }
+
+    pub fn new_root(point: Point<f64>, yaw: f64) -> Node {
+        Node {
+            point,
+            parent: None,
+            yaw,
+        }
+    }
+
+    pub fn new_goal(point: Point<f64>, parent: Rc<Node>, yaw: f64) -> Node {
+        Node {
+            point,
+            parent: Some(parent),
+            yaw,
+        }
+    }
+
     pub fn get_parent(&self) -> Option<Rc<Node>> {
         self.parent.clone()
+    }
+
+    pub fn get_above(&self) -> NodeIter {
+        NodeIter {
+            curr: self.parent.clone(),
+        }
     }
 
     pub fn get_point(&self) -> &Point<f64> {
@@ -151,14 +189,69 @@ impl Node {
     pub fn get_coord(&self) -> Coordinate<f64> {
         self.point.into()
     }
+
+    pub fn get_yaw(&self) -> f64 {
+        self.yaw
+    }
+}
+
+// Iterate nodes back to root
+pub struct NodeIter {
+    curr: Option<Rc<Node>>,
+}
+
+impl Iterator for NodeIter {
+    type Item = Rc<Node>;
+
+    fn next(&mut self) -> Option<Rc<Node>> {
+        match self.curr.clone() {
+            Some(current) => {
+                self.curr = current.get_parent();
+                Some(current)
+            }
+            None => None,
+        }
+    }
+}
+
+fn compute_yaw(from: &Point<f64>, to: &Point<f64>) -> f64 {
+    let (fx, fy) = from.x_y();
+    let (tx, ty) = to.x_y();
+    (ty - fy).atan2(tx - fx)
 }
 
 pub fn create_line(from: Rc<Node>, to: Rc<Node>) -> LineString<f64> {
-    LineString(vec![from.get_coord(), to.get_coord()])
+    let (sx, sy) = from.get_point().x_y();
+    let syaw = from.get_yaw();
+    let (ex, ey) = to.get_point().x_y();
+    let eyaw = to.get_yaw();
+    dubins_path_linestring(sx, sy, syaw, ex, ey, eyaw, 1.0).expect("Should generate a dubins line")
+}
+
+pub fn line_to_origin(node: Rc<Node>) -> LineString<f64> {
+    let node_iter = NodeIter { curr: Some(node) };
+    node_iter
+        .map(|node| match node.get_parent() {
+            Some(parent) => {
+                let (sx, sy) = node.get_coord().x_y();
+                let syaw = node.get_yaw();
+                let (ex, ey) = parent.get_coord().x_y();
+                let eyaw = parent.get_yaw();
+
+                match dubins_path_planning(sx, sy, syaw, ex, ey, eyaw, 0.8) {
+                    Some((px, py, _, _, _)) => px.into_iter().zip(py.into_iter()).collect(),
+                    _ => vec![(sx, sy)],
+                }
+            }
+            None => vec![node.get_coord().x_y()],
+        })
+        .flatten()
+        .collect()
 }
 
 pub struct RRT {
     goal: Coordinate<f64>,
+    goal_yaw: f64,
     max_iter: usize,
     max_dist: f64,
     space: Space,
@@ -168,18 +261,18 @@ pub struct RRT {
 impl RRT {
     pub fn new(
         start: Coordinate<f64>,
+        start_yaw: f64,
         goal: Coordinate<f64>,
+        goal_yaw: f64,
         max_iter: usize,
         space: Space,
     ) -> RRT {
-        let root = Rc::new(Node {
-            point: start.into(),
-            parent: None,
-        });
+        let root = Rc::new(Node::new_root(start.into(), start_yaw));
         RRT {
             goal,
+            goal_yaw,
             max_iter,
-            max_dist: 1000.0,
+            max_dist: std::f64::INFINITY,
             space,
             nodes: vec![root],
         }
@@ -192,7 +285,7 @@ impl RRT {
             .filter_map(|node| {
                 let dist = point.euclidean_distance(node.get_point());
 
-                if dist <= self.max_dist {
+                if dist <= self.max_dist && dist >= 2.0 {
                     Some((node.clone(), dist))
                 } else {
                     None
@@ -209,10 +302,7 @@ impl RRT {
         match self.get_nearest_node(&point) {
             Some((nearest_node, dist)) => {
                 if dist <= self.max_dist {
-                    Some(Rc::new(Node {
-                        point,
-                        parent: Some(nearest_node),
-                    }))
+                    Some(Rc::new(Node::new(point, nearest_node)))
                 } else {
                     None
                 }
@@ -222,25 +312,26 @@ impl RRT {
     }
 
     pub fn verify_node(&self, node: Rc<Node>) -> bool {
-        match node.clone().get_parent() {
-            Some(parent) => {
-                let line = create_line(parent, node);
+        // match node.clone().get_parent() {
+        //     Some(parent) => {
+        //         let line = create_line(parent, node);
 
-                line.euclidean_length() <= self.max_dist && self.space.verify(&line)
-            }
-            None => false,
-        }
+        //         line.euclidean_length() <= self.max_dist && self.space.verify(&line)
+        //     }
+        //     None => false,
+        // }
+
+        let line = line_to_origin(node);
+        self.space.verify(&line)
     }
 
-    pub fn check_finish(&self, node: Rc<Node>) -> Option<Rc<Node>> {
+    pub fn check_finish(&self, node: Rc<Node>) -> Option<LineString<f64>> {
         let point = self.goal.into();
-        let goal_node = Rc::new(Node {
-            point,
-            parent: Some(node),
-        });
+        let goal_node = Rc::new(Node::new_goal(point, node, self.goal_yaw));
+        let line = self.finalize(goal_node);
 
-        if self.verify_node(goal_node.clone()) {
-            Some(goal_node)
+        if self.space.verify(&line) {
+            Some(line)
         } else {
             None
         }
@@ -261,53 +352,78 @@ impl RRT {
 
         optimized.reverse();
 
-        println!("optimized: {:?}", nodes.len() - optimized.len());
+        // println!("optimized: {:?}", nodes.len() - optimized.len());
 
         LineString(optimized)
     }
 
+    //pub fn new_finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {}
+
     pub fn finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {
-        let mut nodes = vec![];
-        nodes.push(goal_node.clone());
+        let node_iter = NodeIter {
+            curr: Some(goal_node),
+        };
+        node_iter
+            .map(|node| match node.get_parent() {
+                Some(parent) => {
+                    let (sx, sy) = node.get_coord().x_y();
+                    let syaw = node.get_yaw();
+                    let (ex, ey) = parent.get_coord().x_y();
+                    let eyaw = parent.get_yaw();
 
-        let mut parent = goal_node.get_parent();
-
-        while let Some(next_parent) = parent.clone() {
-            nodes.push(next_parent.clone());
-            parent = next_parent.get_parent();
-        }
-
-        self.optimize(nodes)
+                    match dubins_path_planning(sx, sy, syaw, ex, ey, eyaw, 0.8) {
+                        Some((px, py, _, _, _)) => px.into_iter().zip(py.into_iter()).collect(),
+                        _ => panic!("WTF"),
+                    }
+                }
+                None => vec![],
+            })
+            .flatten()
+            .collect()
     }
 
     pub fn old_finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {
+        println!("Finalizing");
         let mut points = vec![];
-        points.push(goal_node.clone().get_coord());
+        let mut parent = Some(goal_node);
 
-        let mut parent = goal_node.get_parent();
+        while let Some(current) = parent.clone() {
+            //points.push(next_parent.get_coord());
+            parent = current.get_parent();
+            if let Some(p) = parent.clone() {
+                let (sx, sy) = current.get_point().x_y();
+                let syaw = current.get_yaw();
+                let (ex, ey) = p.get_point().x_y();
+                let eyaw = p.get_yaw();
 
-        while let Some(next_parent) = parent.clone() {
-            points.push(next_parent.get_coord());
-            parent = next_parent.get_parent();
+                let (px, py, _, _, _) = dubins_path_planning(sx, sy, syaw, ex, ey, eyaw, 1.0)
+                    .expect("should create dubins segment");
+
+                let mut new_points: Vec<Coordinate<f64>> = px
+                    .into_iter()
+                    .zip(py.into_iter())
+                    .map(|(x, y)| Coordinate { x, y })
+                    .collect();
+
+                points.append(&mut new_points);
+            }
         }
 
-        points.reverse();
+        //points.reverse();
 
         LineString(points)
     }
 
     pub fn plan(&mut self) -> Option<LineString<f64>> {
         let mut results: Vec<LineString<f64>> = vec![];
-        let mut unopt_results: Vec<LineString<f64>> = vec![];
         for _i in 0..self.max_iter {
             // println!("iter: {:?}", _i);
             if let Some(rnd_node) = self.get_random_node() {
                 if self.verify_node(rnd_node.clone()) {
                     self.nodes.push(rnd_node.clone());
 
-                    if let Some(goal_node) = self.check_finish(rnd_node.clone()) {
-                        results.push(self.finalize(goal_node.clone()));
-                        unopt_results.push(self.old_finalize(goal_node.clone()));
+                    if let Some(finish) = self.check_finish(rnd_node.clone()) {
+                        results.push(finish);
                     }
                 }
             }

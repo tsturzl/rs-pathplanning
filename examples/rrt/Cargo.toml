@@ -7,4 +7,5 @@ edition = "2018"
 [dependencies]
 pathplanning = { path = "../.." }
 geo = "0.12.2"
+geo-plot = "0.1.2"
 gnuplot = "0.0.33"
