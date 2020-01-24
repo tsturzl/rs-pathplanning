@@ -51,7 +51,7 @@ pub fn rsr(alpha: f64, beta: f64, d: f64) -> PlannerResult {
 
     let tmp0 = d - sa + sb;
     let mode = vec![Mode::R, Mode::S, Mode::R];
-    let p_squared = 2.0 + (d * d) - (2.0 * c_ab) + (2.0 * d * (sa - sb));
+    let p_squared = 2.0 + (d * d) - (2.0 * c_ab) + (2.0 * d * (sb - sa));
 
     if p_squared < 0.0 {
         return (None, None, None, mode);
@@ -73,7 +73,7 @@ pub fn lsr(alpha: f64, beta: f64, d: f64) -> PlannerResult {
     let c_ab = (alpha - beta).cos();
 
     let mode = vec![Mode::L, Mode::S, Mode::R];
-    let p_squared = 2.0 + (d * d) - (2.0 * c_ab) + (2.0 * d * (sa - sb));
+    let p_squared = -2.0 + (d * d) + (2.0 * c_ab) + (2.0 * d * (sa + sb));
     if p_squared < 0.0 {
         return (None, None, None, mode);
     }
@@ -94,7 +94,7 @@ pub fn rsl(alpha: f64, beta: f64, d: f64) -> PlannerResult {
     let c_ab = (alpha - beta).cos();
 
     let mode = vec![Mode::R, Mode::S, Mode::L];
-    let p_squared = 2.0 + (d * d) - (2.0 * c_ab) + (2.0 * d * (sa - sb));
+    let p_squared = (d * d) - 2.0 + (2.0 * c_ab) - (2.0 * d * (sa + sb));
     if p_squared < 0.0 {
         return (None, None, None, mode);
     }
