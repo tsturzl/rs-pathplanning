@@ -11,8 +11,12 @@ pub enum Mode {
 type ModeSlice = Option<&'static [Mode; 3]>;
 type PlannerResult = (Option<f64>, Option<f64>, Option<f64>, ModeSlice);
 
+fn fmodr(x: f64, y: f64) -> f64 {
+    x - y * (x / y).floor()
+}
+
 pub fn mod2pi(theta: f64) -> f64 {
-    theta - 2.0 * PI * (theta / 2.0 / PI).floor()
+    fmodr(theta, 2.0 * PI)
 }
 
 pub fn pi_2_pi(angle: f64) -> f64 {
@@ -52,7 +56,7 @@ pub fn rsr(alpha: f64, beta: f64, d: f64) -> PlannerResult {
     let c_ab = (alpha - beta).cos();
 
     let tmp0 = d - sa + sb;
-    let p_squared = 2.0 + (d * d) - (2.0 * c_ab) + (2.0 * d * (sa - sb));
+    let p_squared = 2.0 + (d * d) - (2.0 * c_ab) + (2.0 * d * (sb - sa));
 
     if p_squared < 0.0 {
         return (None, None, None, RSR_MODE);
@@ -74,7 +78,7 @@ pub fn lsr(alpha: f64, beta: f64, d: f64) -> PlannerResult {
     let cb = beta.cos();
     let c_ab = (alpha - beta).cos();
 
-    let p_squared = 2.0 + (d * d) - (2.0 * c_ab) + (2.0 * d * (sa - sb));
+    let p_squared = -2.0 + (d * d) + (2.0 * c_ab) + (2.0 * d * (sa + sb));
     if p_squared < 0.0 {
         return (None, None, None, LSR_MODE);
     }
@@ -95,7 +99,7 @@ pub fn rsl(alpha: f64, beta: f64, d: f64) -> PlannerResult {
     let cb = beta.cos();
     let c_ab = (alpha - beta).cos();
 
-    let p_squared = 2.0 + (d * d) - (2.0 * c_ab) + (2.0 * d * (sa - sb));
+    let p_squared = -2.0 + (d * d) + (2.0 * c_ab) - (2.0 * d * (sa + sb));
     if p_squared < 0.0 {
         return (None, None, None, RSL_MODE);
     }
@@ -165,11 +169,9 @@ pub fn generate_course(
         let mut pd = 0.0;
 
         let mut d = d_angle;
-        // This can probably be less dumb
-        match m {
-            Mode::S => d = 1.0 * c,
-            Mode::L => {}
-            Mode::R => {}
+
+        if let Mode::S = m {
+            d = 1.0 * c;
         }
 
         while pd < (l - d).abs() {
@@ -222,7 +224,7 @@ impl Iterator for Planners {
 type DubinsPath = (Vec<f64>, Vec<f64>, Vec<f64>, ModeSlice, f64);
 type DubinsPathResult = Option<DubinsPath>;
 
-struct DubinsConfig {
+pub struct DubinsConfig {
     pub sx: f64,
     pub sy: f64,
     pub syaw: f64,
@@ -232,21 +234,15 @@ struct DubinsConfig {
     pub c: f64,
 }
 
-pub fn dubins_path_planning_from_origin(
-    ex: f64,
-    ey: f64,
-    eyaw: f64,
-    c: f64,
-    d_angle: f64,
-) -> DubinsPathResult {
-    let dx = ex;
-    let dy = ey;
+pub fn dubins_path_planning_from_origin(conf: &DubinsConfig, d_angle: f64) -> DubinsPathResult {
+    let dx = conf.ex;
+    let dy = conf.ey;
     let hypot = dx.hypot(dy);
-    let d = hypot * c;
+    let d = hypot * conf.c;
 
     let theta = mod2pi(dy.atan2(dx));
     let alpha = mod2pi(-theta);
-    let beta = mod2pi(eyaw - theta);
+    let beta = mod2pi(conf.eyaw - theta);
 
     let planners = Planners {
         i: 0,
@@ -279,7 +275,7 @@ pub fn dubins_path_planning_from_origin(
             generate_course(
                 &[bt, bp, bq],
                 bmode,
-                c,
+                conf.c,
                 d_angle,
                 &mut px,
                 &mut py,
@@ -292,7 +288,7 @@ pub fn dubins_path_planning_from_origin(
 }
 
 const D_ANGLE: f64 = PI / 72.0; // 2.5 angular degrees
-pub fn dubins_path_planning(conf: DubinsConfig) -> DubinsPathResult {
+pub fn dubins_path_planning(conf: &DubinsConfig) -> DubinsPathResult {
     let sx = conf.sx;
     let sy = conf.sy;
     let ex = conf.ex - conf.sx;
@@ -305,7 +301,7 @@ pub fn dubins_path_planning(conf: DubinsConfig) -> DubinsPathResult {
     let ley = -(syaw.sin()) * ex + syaw.cos() * ey;
     let leyaw = eyaw - syaw;
 
-    match dubins_path_planning_from_origin(lex, ley, leyaw, c, D_ANGLE) {
+    match dubins_path_planning_from_origin(&conf, D_ANGLE) {
         Some((lpx, lpy, lpyaw, mode, clen)) => {
             let px: Vec<f64> = lpx
                 .iter()
@@ -325,7 +321,7 @@ pub fn dubins_path_planning(conf: DubinsConfig) -> DubinsPathResult {
     }
 }
 
-pub fn dubins_path_linestring(conf: DubinsConfig) -> Option<LineString<f64>> {
+pub fn dubins_path_linestring(conf: &DubinsConfig) -> Option<LineString<f64>> {
     match dubins_path_planning(conf) {
         Some((px, py, _, _, _)) => Some(
             px.into_iter()
@@ -333,22 +329,6 @@ pub fn dubins_path_linestring(conf: DubinsConfig) -> Option<LineString<f64>> {
                 .map(|(x, y)| Coordinate { x, y })
                 .collect(),
         ),
-        None => None,
-    }
-}
-
-pub fn dubins_path_sample(path: &mut DubinsPath, t: f64, q: f64) -> usize {}
-
-pub fn dubins_path_sample_many(path: &mut DubinsPathResult, step_size: usize) -> Option<()> {
-    match path {
-        Some(path) => {
-            let length = path.0.len();
-            let mut x = 0;
-            while x < length {
-                x += step_size;
-            }
-            None
-        }
         None => None,
     }
 }
