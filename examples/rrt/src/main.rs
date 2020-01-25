@@ -1,6 +1,7 @@
 extern crate gnuplot;
 extern crate pathplanning;
 
+use geo::algorithm::simplify::Simplify;
 use geo::{Coordinate, LineString, Point, Polygon, Rect};
 use gnuplot::{Color, Figure};
 use pathplanning::rrt::{create_circle, Robot, Space, RRT};
@@ -34,7 +35,7 @@ fn main() {
 
     let (bx, by): (Vec<f64>, Vec<f64>) = bounds.exterior().points_iter().map(|p| p.x_y()).unzip();
 
-    let robot = Robot::new(1.0, 1.0);
+    let robot = Robot::new(1.0, 1.0, 0.8);
     let space = Space::new(bounds, robot, obstacle_list.clone());
 
     let buffer_obs = space.get_obs();
@@ -50,7 +51,7 @@ fn main() {
         (-45.0_f64).to_radians(),
         (6.0, 10.0).into(),
         45.0_f64.to_radians(),
-        5000,
+        2000,
         space,
     );
 

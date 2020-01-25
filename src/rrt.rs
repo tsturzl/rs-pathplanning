@@ -1,4 +1,8 @@
-use crate::dubins::{dubins_path_linestring, dubins_path_planning};
+use crate::dubins::{dubins_path_linestring, dubins_path_planning, DubinsConfig};
+use futures::channel::mpsc;
+use futures::executor; //standard executors to provide a context for futures and streams
+use futures::executor::ThreadPool;
+use futures::StreamExt;
 use geo::algorithm::{
     contains::Contains, euclidean_distance::EuclideanDistance, euclidean_length::EuclideanLength,
     intersects::Intersects,
@@ -7,21 +11,30 @@ use geo::{Coordinate, LineString, MultiPolygon, Point, Polygon};
 use geo_offset::Offset;
 use rand::{rngs::ThreadRng, thread_rng, Rng};
 use std::f64::consts::PI;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 #[allow(dead_code)]
 pub struct Robot {
     width: f64,
     height: f64,
+    max_steer: f64,
 }
 
 impl Robot {
-    pub fn new(width: f64, height: f64) -> Robot {
-        Robot { width, height }
+    pub fn new(width: f64, height: f64, max_steer: f64) -> Robot {
+        Robot {
+            width,
+            height,
+            max_steer,
+        }
     }
 
     pub fn get_width(&self) -> f64 {
         self.width
+    }
+
+    pub fn get_steer(&self) -> f64 {
+        self.max_steer
     }
 }
 
@@ -49,7 +62,7 @@ fn buffer_poly(poly: &Polygon<f64>, buffer: f64) -> MultiPolygon<f64> {
 
 pub struct Space {
     bounds: Polygon<f64>,
-    // robot: Robot,
+    robot: Robot,
     obstacles: Vec<Polygon<f64>>,
     rng: ThreadRng,
     minx: f64,
@@ -100,7 +113,7 @@ impl Space {
                 .into_iter()
                 .last()
                 .expect("should provide dialated polygon"),
-            // robot,
+            robot,
             obstacles,
             minx,
             maxx,
@@ -131,6 +144,10 @@ impl Space {
         Point::new(randx, randy)
     }
 
+    pub fn get_steer(&self) -> f64 {
+        self.robot.get_steer()
+    }
+
     pub fn get_obs(&self) -> Vec<Polygon<f64>> {
         self.obstacles.clone()
     }
@@ -142,13 +159,13 @@ impl Space {
 
 pub struct Node {
     point: Point<f64>,
-    parent: Option<Rc<Node>>,
+    parent: Option<Arc<Node>>,
     // angle from self to parent, or the heading angle(eg the start point)
     yaw: f64,
 }
 
 impl Node {
-    pub fn new(point: Point<f64>, parent: Rc<Node>) -> Node {
+    pub fn new(point: Point<f64>, parent: Arc<Node>) -> Node {
         Node {
             point,
             parent: Some(parent.clone()),
@@ -164,7 +181,7 @@ impl Node {
         }
     }
 
-    pub fn new_goal(point: Point<f64>, parent: Rc<Node>, yaw: f64) -> Node {
+    pub fn new_goal(point: Point<f64>, parent: Arc<Node>, yaw: f64) -> Node {
         Node {
             point,
             parent: Some(parent),
@@ -172,7 +189,7 @@ impl Node {
         }
     }
 
-    pub fn get_parent(&self) -> Option<Rc<Node>> {
+    pub fn get_parent(&self) -> Option<Arc<Node>> {
         self.parent.clone()
     }
 
@@ -197,13 +214,13 @@ impl Node {
 
 // Iterate nodes back to root
 pub struct NodeIter {
-    curr: Option<Rc<Node>>,
+    curr: Option<Arc<Node>>,
 }
 
 impl Iterator for NodeIter {
-    type Item = Rc<Node>;
+    type Item = Arc<Node>;
 
-    fn next(&mut self) -> Option<Rc<Node>> {
+    fn next(&mut self) -> Option<Arc<Node>> {
         match self.curr.clone() {
             Some(current) => {
                 self.curr = current.get_parent();
@@ -220,15 +237,24 @@ fn compute_yaw(from: &Point<f64>, to: &Point<f64>) -> f64 {
     (ty - fy).atan2(tx - fx)
 }
 
-pub fn create_line(from: Rc<Node>, to: Rc<Node>) -> LineString<f64> {
+pub fn create_line(from: Arc<Node>, to: Arc<Node>, c: f64) -> LineString<f64> {
     let (sx, sy) = from.get_point().x_y();
     let syaw = from.get_yaw();
     let (ex, ey) = to.get_point().x_y();
     let eyaw = to.get_yaw();
-    dubins_path_linestring(sx, sy, syaw, ex, ey, eyaw, 1.0).expect("Should generate a dubins line")
+    let conf = DubinsConfig {
+        sx,
+        sy,
+        syaw,
+        ex,
+        ey,
+        eyaw,
+        c,
+    };
+    dubins_path_linestring(&conf).expect("Should generate a dubins line")
 }
 
-pub fn line_to_origin(node: Rc<Node>) -> LineString<f64> {
+pub fn line_to_origin(node: Arc<Node>, c: f64) -> LineString<f64> {
     let node_iter = NodeIter { curr: Some(node) };
     node_iter
         .map(|node| match node.get_parent() {
@@ -237,8 +263,16 @@ pub fn line_to_origin(node: Rc<Node>) -> LineString<f64> {
                 let syaw = node.get_yaw();
                 let (ex, ey) = parent.get_coord().x_y();
                 let eyaw = parent.get_yaw();
-
-                match dubins_path_planning(sx, sy, syaw, ex, ey, eyaw, 0.8) {
+                let conf = DubinsConfig {
+                    sx,
+                    sy,
+                    syaw,
+                    ex,
+                    ey,
+                    eyaw,
+                    c,
+                };
+                match dubins_path_planning(&conf) {
                     Some((px, py, _, _, _)) => px.into_iter().zip(py.into_iter()).collect(),
                     _ => vec![(sx, sy)],
                 }
@@ -255,7 +289,7 @@ pub struct RRT {
     max_iter: usize,
     max_dist: f64,
     space: Space,
-    nodes: Vec<Rc<Node>>, // note: root node is the first item in this vector
+    nodes: Arc<Mutex<Vec<Arc<Node>>>>, // note: root node is the first item in this vector
 }
 
 impl RRT {
@@ -267,20 +301,22 @@ impl RRT {
         max_iter: usize,
         space: Space,
     ) -> RRT {
-        let root = Rc::new(Node::new_root(start.into(), start_yaw));
+        let root = Arc::new(Node::new_root(start.into(), start_yaw));
         RRT {
             goal,
             goal_yaw,
             max_iter,
             max_dist: std::f64::INFINITY,
             space,
-            nodes: vec![root],
+            nodes: Arc::new(Mutex::new(vec![root])),
         }
     }
 
     // a KD-Tree could speed this up
-    pub fn get_nearest_node(&self, point: &Point<f64>) -> Option<(Rc<Node>, f64)> {
+    pub fn get_nearest_node(&self, point: &Point<f64>) -> Option<(Arc<Node>, f64)> {
         self.nodes
+            .lock()
+            .unwrap()
             .iter()
             .filter_map(|node| {
                 let dist = point.euclidean_distance(node.get_point());
@@ -297,12 +333,12 @@ impl RRT {
             })
     }
 
-    pub fn get_random_node(&mut self) -> Option<Rc<Node>> {
+    pub fn get_random_node(&mut self) -> Option<Arc<Node>> {
         let point = self.space.rand_point();
         match self.get_nearest_node(&point) {
             Some((nearest_node, dist)) => {
                 if dist <= self.max_dist {
-                    Some(Rc::new(Node::new(point, nearest_node)))
+                    Some(Arc::new(Node::new(point, nearest_node)))
                 } else {
                     None
                 }
@@ -311,7 +347,7 @@ impl RRT {
         }
     }
 
-    pub fn verify_node(&self, node: Rc<Node>) -> bool {
+    pub fn verify_node(&self, node: Arc<Node>) -> bool {
         // match node.clone().get_parent() {
         //     Some(parent) => {
         //         let line = create_line(parent, node);
@@ -321,13 +357,13 @@ impl RRT {
         //     None => false,
         // }
 
-        let line = line_to_origin(node);
+        let line = line_to_origin(node, self.space.get_steer());
         self.space.verify(&line)
     }
 
-    pub fn check_finish(&self, node: Rc<Node>) -> Option<LineString<f64>> {
+    pub fn check_finish(&self, node: Arc<Node>) -> Option<LineString<f64>> {
         let point = self.goal.into();
-        let goal_node = Rc::new(Node::new_goal(point, node, self.goal_yaw));
+        let goal_node = Arc::new(Node::new_goal(point, node, self.goal_yaw));
         let line = self.finalize(goal_node);
 
         if self.space.verify(&line) {
@@ -337,29 +373,29 @@ impl RRT {
         }
     }
 
-    pub fn optimize(&self, nodes: Vec<Rc<Node>>) -> LineString<f64> {
-        let mut optimized = vec![];
+    // pub fn optimize(&self, nodes: Vec<Arc<Node>>) -> LineString<f64> {
+    //     let mut optimized = vec![];
 
-        let len = nodes.len() - 1;
-        for i in 0..len {
-            let line = create_line(nodes[i].clone(), nodes[len].clone());
-            optimized.push(nodes[i].get_coord());
-            if self.space.verify(&line) {
-                optimized.push(nodes[len].get_coord());
-                break;
-            }
-        }
+    //     let len = nodes.len() - 1;
+    //     for i in 0..len {
+    //         let line = create_line(nodes[i].clone(), nodes[len].clone(), self.space.get_steer());
+    //         optimized.push(nodes[i].get_coord());
+    //         if self.space.verify(&line) {
+    //             optimized.push(nodes[len].get_coord());
+    //             break;
+    //         }
+    //     }
 
-        optimized.reverse();
+    //     optimized.reverse();
 
-        // println!("optimized: {:?}", nodes.len() - optimized.len());
+    //     // println!("optimized: {:?}", nodes.len() - optimized.len());
 
-        LineString(optimized)
-    }
+    //     LineString(optimized)
+    // }
 
-    //pub fn new_finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {}
+    //pub fn new_finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {}
 
-    pub fn finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {
+    pub fn finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {
         let node_iter = NodeIter {
             curr: Some(goal_node),
         };
@@ -371,7 +407,16 @@ impl RRT {
                     let (ex, ey) = parent.get_coord().x_y();
                     let eyaw = parent.get_yaw();
 
-                    match dubins_path_planning(sx, sy, syaw, ex, ey, eyaw, 0.8) {
+                    let conf = DubinsConfig {
+                        sx,
+                        sy,
+                        syaw,
+                        ex,
+                        ey,
+                        eyaw,
+                        c: 0.8,
+                    };
+                    match dubins_path_planning(&conf) {
                         Some((px, py, _, _, _)) => px.into_iter().zip(py.into_iter()).collect(),
                         _ => panic!("WTF"),
                     }
@@ -382,45 +427,55 @@ impl RRT {
             .collect()
     }
 
-    pub fn old_finalize(&self, goal_node: Rc<Node>) -> LineString<f64> {
-        println!("Finalizing");
-        let mut points = vec![];
-        let mut parent = Some(goal_node);
+    // pub fn old_finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {
+    //     println!("Finalizing");
+    //     let mut points = vec![];
+    //     let mut parent = Some(goal_node);
 
-        while let Some(current) = parent.clone() {
-            //points.push(next_parent.get_coord());
-            parent = current.get_parent();
-            if let Some(p) = parent.clone() {
-                let (sx, sy) = current.get_point().x_y();
-                let syaw = current.get_yaw();
-                let (ex, ey) = p.get_point().x_y();
-                let eyaw = p.get_yaw();
+    //     while let Some(current) = parent.clone() {
+    //         //points.push(next_parent.get_coord());
+    //         parent = current.get_parent();
+    //         if let Some(p) = parent.clone() {
+    //             let (sx, sy) = current.get_point().x_y();
+    //             let syaw = current.get_yaw();
+    //             let (ex, ey) = p.get_point().x_y();
+    //             let eyaw = p.get_yaw();
 
-                let (px, py, _, _, _) = dubins_path_planning(sx, sy, syaw, ex, ey, eyaw, 1.0)
-                    .expect("should create dubins segment");
+    //             let conf = DubinsConfig {
+    //                 sx,
+    //                 sy,
+    //                 syaw,
+    //                 ex,
+    //                 ey,
+    //                 eyaw,
+    //                 c: 0.8,
+    //             };
+    //             let (px, py, _, _, _) =
+    //                 dubins_path_planning(&conf).expect("should create dubins segment");
 
-                let mut new_points: Vec<Coordinate<f64>> = px
-                    .into_iter()
-                    .zip(py.into_iter())
-                    .map(|(x, y)| Coordinate { x, y })
-                    .collect();
+    //             let mut new_points: Vec<Coordinate<f64>> = px
+    //                 .into_iter()
+    //                 .zip(py.into_iter())
+    //                 .map(|(x, y)| Coordinate { x, y })
+    //                 .collect();
 
-                points.append(&mut new_points);
-            }
-        }
+    //             points.append(&mut new_points);
+    //         }
+    //     }
 
-        //points.reverse();
+    //     //points.reverse();
 
-        LineString(points)
-    }
+    //     LineString(points)
+    // }
 
     pub fn plan(&mut self) -> Option<LineString<f64>> {
         let mut results: Vec<LineString<f64>> = vec![];
+
         for _i in 0..self.max_iter {
             // println!("iter: {:?}", _i);
             if let Some(rnd_node) = self.get_random_node() {
                 if self.verify_node(rnd_node.clone()) {
-                    self.nodes.push(rnd_node.clone());
+                    self.nodes.lock().unwrap().push(rnd_node.clone());
 
                     if let Some(finish) = self.check_finish(rnd_node.clone()) {
                         results.push(finish);

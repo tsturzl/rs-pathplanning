@@ -234,15 +234,21 @@ pub struct DubinsConfig {
     pub c: f64,
 }
 
-pub fn dubins_path_planning_from_origin(conf: &DubinsConfig, d_angle: f64) -> DubinsPathResult {
-    let dx = conf.ex;
-    let dy = conf.ey;
+pub fn dubins_path_planning_from_origin(
+    ex: f64,
+    ey: f64,
+    eyaw: f64,
+    c: f64,
+    d_angle: f64,
+) -> DubinsPathResult {
+    let dx = ex;
+    let dy = ey;
     let hypot = dx.hypot(dy);
-    let d = hypot * conf.c;
+    let d = hypot * c;
 
     let theta = mod2pi(dy.atan2(dx));
     let alpha = mod2pi(-theta);
-    let beta = mod2pi(conf.eyaw - theta);
+    let beta = mod2pi(eyaw - theta);
 
     let planners = Planners {
         i: 0,
@@ -275,7 +281,7 @@ pub fn dubins_path_planning_from_origin(conf: &DubinsConfig, d_angle: f64) -> Du
             generate_course(
                 &[bt, bp, bq],
                 bmode,
-                conf.c,
+                c,
                 d_angle,
                 &mut px,
                 &mut py,
@@ -301,7 +307,7 @@ pub fn dubins_path_planning(conf: &DubinsConfig) -> DubinsPathResult {
     let ley = -(syaw.sin()) * ex + syaw.cos() * ey;
     let leyaw = eyaw - syaw;
 
-    match dubins_path_planning_from_origin(&conf, D_ANGLE) {
+    match dubins_path_planning_from_origin(lex, ley, leyaw, c, D_ANGLE) {
         Some((lpx, lpy, lpyaw, mode, clen)) => {
             let px: Vec<f64> = lpx
                 .iter()
