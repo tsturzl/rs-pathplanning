@@ -4,8 +4,7 @@ extern crate pathplanning;
 use geo::algorithm::simplify::Simplify;
 use geo::{Coordinate, LineString, Point, Polygon, Rect};
 use gnuplot::{Color, Figure};
-use pathplanning::rrt::{create_circle, par_plan, Robot, Space, RRT};
-use std::sync::Arc;
+use pathplanning::rrt::{create_circle, Robot, Space, RRT};
 
 fn main() {
     let mut fg = Figure::new();
@@ -47,21 +46,21 @@ fn main() {
         .map(|p| p.x_y())
         .unzip();
 
-    let planner = Arc::new(RRT::new(
+    let planner = RRT::new(
         (-5.0, -5.0).into(),
         (-45.0_f64).to_radians(),
         (6.0, 10.0).into(),
         45.0_f64.to_radians(),
         10000,
         space,
-    ));
+    );
 
     let axes = fg.axes2d();
     axes.lines(&bx, &by, &[Color("black")])
         .lines(&bbx, &bby, &[Color("blue")]);
 
     println!("Start planner");
-    match par_plan(planner) {
+    match planner.plan() {
         Some(path) => {
             println!("Path generated!");
             let (px, py): (Vec<f64>, Vec<f64>) = path.points_iter().map(|p| p.x_y()).unzip();

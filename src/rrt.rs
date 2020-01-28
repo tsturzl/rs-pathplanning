@@ -477,41 +477,17 @@ impl RRT {
         None
     }
 
-    pub fn plan(&mut self) -> Option<LineString<f64>> {
-        let mut results: Vec<LineString<f64>> = vec![];
-
-        for _i in 0..self.max_iter {
-            // println!("iter: {:?}", _i);
-            if let Some(path) = self.plan_one() {
-                results.push(path);
-            }
-        }
-
-        // println!("Paths: {:?}", results.len());
-        if results.is_empty() {
-            None
-        } else {
-            results.into_iter().min_by(|a, b| {
+    pub fn plan(&self) -> Option<LineString<f64>> {
+        (0..self.max_iter)
+            .into_par_iter()
+            .map(|_| self.plan_one())
+            .filter_map(|r| r)
+            .min_by(|a, b| {
                 let a_len = a.euclidean_length();
                 let b_len = b.euclidean_length();
                 a_len
                     .partial_cmp(&b_len)
                     .expect("Compare length of results")
             })
-        }
     }
-}
-
-pub fn par_plan(planner: Arc<RRT>) -> Option<LineString<f64>> {
-    (0..planner.max_iter)
-        .into_par_iter()
-        .map(|_i| planner.plan_one())
-        .filter_map(|r| r)
-        .min_by(|a, b| {
-            let a_len = a.euclidean_length();
-            let b_len = b.euclidean_length();
-            a_len
-                .partial_cmp(&b_len)
-                .expect("Compare length of results")
-        })
 }
