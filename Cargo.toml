@@ -12,3 +12,4 @@ geo = "0.12.2"
 rand = "0.7"
 geo-offset = "0.1.0"
 rayon = "1.3.0"
+pyo3 = { version = "0.9.0-alpha.1", features = ["extension-module"] }
