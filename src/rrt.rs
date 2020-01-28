@@ -1,15 +1,12 @@
 use crate::dubins::{dubins_path_linestring, dubins_path_planning, DubinsConfig};
-use futures::channel::mpsc;
-use futures::executor; //standard executors to provide a context for futures and streams
-use futures::executor::ThreadPool;
-use futures::StreamExt;
 use geo::algorithm::{
     contains::Contains, euclidean_distance::EuclideanDistance, euclidean_length::EuclideanLength,
     intersects::Intersects,
 };
 use geo::{Coordinate, LineString, MultiPolygon, Point, Polygon};
 use geo_offset::Offset;
-use rand::{rngs::ThreadRng, thread_rng, Rng};
+use rand::{thread_rng, Rng};
+use rayon::prelude::*;
 use std::f64::consts::PI;
 use std::sync::{Arc, Mutex};
 
@@ -64,7 +61,6 @@ pub struct Space {
     bounds: Polygon<f64>,
     robot: Robot,
     obstacles: Vec<Polygon<f64>>,
-    rng: ThreadRng,
     minx: f64,
     maxx: f64,
     miny: f64,
@@ -108,7 +104,6 @@ impl Space {
             .collect();
 
         Space {
-            rng: thread_rng(),
             bounds: buffer_poly(&bounds, -width)
                 .into_iter()
                 .last()
@@ -137,9 +132,10 @@ impl Space {
         }
     }
 
-    pub fn rand_point(&mut self) -> Point<f64> {
-        let randx: f64 = self.rng.gen_range(self.minx, self.maxx);
-        let randy: f64 = self.rng.gen_range(self.miny, self.maxy);
+    pub fn rand_point(&self) -> Point<f64> {
+        let mut rng = thread_rng();
+        let randx: f64 = rng.gen_range(self.minx, self.maxx);
+        let randy: f64 = rng.gen_range(self.miny, self.maxy);
 
         Point::new(randx, randy)
     }
@@ -333,7 +329,7 @@ impl RRT {
             })
     }
 
-    pub fn get_random_node(&mut self) -> Option<Arc<Node>> {
+    pub fn get_random_node(&self) -> Option<Arc<Node>> {
         let point = self.space.rand_point();
         match self.get_nearest_node(&point) {
             Some((nearest_node, dist)) => {
@@ -468,19 +464,26 @@ impl RRT {
     //     LineString(points)
     // }
 
+    pub fn plan_one(&self) -> Option<LineString<f64>> {
+        if let Some(rnd_node) = self.get_random_node() {
+            if self.verify_node(rnd_node.clone()) {
+                self.nodes.lock().unwrap().push(rnd_node.clone());
+
+                if let Some(finish) = self.check_finish(rnd_node) {
+                    return Some(finish);
+                }
+            }
+        }
+        None
+    }
+
     pub fn plan(&mut self) -> Option<LineString<f64>> {
         let mut results: Vec<LineString<f64>> = vec![];
 
         for _i in 0..self.max_iter {
             // println!("iter: {:?}", _i);
-            if let Some(rnd_node) = self.get_random_node() {
-                if self.verify_node(rnd_node.clone()) {
-                    self.nodes.lock().unwrap().push(rnd_node.clone());
-
-                    if let Some(finish) = self.check_finish(rnd_node.clone()) {
-                        results.push(finish);
-                    }
-                }
+            if let Some(path) = self.plan_one() {
+                results.push(path);
             }
         }
 
@@ -497,4 +500,18 @@ impl RRT {
             })
         }
     }
+}
+
+pub fn par_plan(planner: Arc<RRT>) -> Option<LineString<f64>> {
+    (0..planner.max_iter)
+        .into_par_iter()
+        .map(|_i| planner.plan_one())
+        .filter_map(|r| r)
+        .min_by(|a, b| {
+            let a_len = a.euclidean_length();
+            let b_len = b.euclidean_length();
+            a_len
+                .partial_cmp(&b_len)
+                .expect("Compare length of results")
+        })
 }
