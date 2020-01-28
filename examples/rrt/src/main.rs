@@ -1,6 +1,7 @@
 extern crate gnuplot;
 extern crate pathplanning;
 
+use geo::algorithm::simplify::Simplify;
 use geo::{Coordinate, LineString, Point, Polygon, Rect};
 use gnuplot::{Color, Figure};
 use pathplanning::rrt::{create_circle, Robot, Space, RRT};
@@ -12,37 +13,51 @@ fn main() {
         // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 10.0, y: 110.0}).into(),
         // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 90.0, y: 48.0}).into(),
         // Rect::new(Coordinate{x: 80.0, y: 30.0}, Coordinate{x: 110.0, y: 113.0}).into(),
-        create_circle(Point::new(50.0, 50.0), 10.0),
-        create_circle(Point::new(30.0, 60.0), 20.0),
-        create_circle(Point::new(30.0, 80.0), 20.0),
-        create_circle(Point::new(30.0, 100.0), 20.0),
-        create_circle(Point::new(70.0, 50.0), 20.0),
-        create_circle(Point::new(90.0, 50.0), 20.0),
-        create_circle(Point::new(80.0, 100.0), 10.0),
+        create_circle(Point::new(5.0, 5.0), 1.0),
+        create_circle(Point::new(3.0, 6.0), 2.0),
+        create_circle(Point::new(3.0, 8.0), 2.0),
+        create_circle(Point::new(3.0, 10.0), 2.0),
+        create_circle(Point::new(7.0, 5.0), 2.0),
+        create_circle(Point::new(9.0, 5.0), 2.0),
+        // create_circle(Point::new(80.0, 100.0), 10.0),
     ];
 
     let bounds = Polygon::new(
         LineString::from(vec![
-            (-100.0, -100.0),
-            (-100.0, 200.0),
-            (200.0, 200.0),
-            (200.0, -100.0),
-            (-100.0, -100.0),
+            (-6.0, -6.0),
+            (-6.0, 15.0),
+            (15.0, 15.0),
+            (15.0, -6.0),
+            (-6.0, -6.0),
         ]),
         vec![],
     );
 
     let (bx, by): (Vec<f64>, Vec<f64>) = bounds.exterior().points_iter().map(|p| p.x_y()).unzip();
 
-    let robot = Robot::new(10.0, 10.0);
+    let robot = Robot::new(1.0, 1.0, 0.8);
     let space = Space::new(bounds, robot, obstacle_list.clone());
 
     let buffer_obs = space.get_obs();
+    let (bbx, bby): (Vec<f64>, Vec<f64>) = space
+        .get_bounds()
+        .exterior()
+        .points_iter()
+        .map(|p| p.x_y())
+        .unzip();
 
-    let mut planner = RRT::new((-50.0, -50.0).into(), (60.0, 100.0).into(), 5000, space);
+    let planner = RRT::new(
+        (-5.0, -5.0).into(),
+        (-45.0_f64).to_radians(),
+        (6.0, 10.0).into(),
+        45.0_f64.to_radians(),
+        10000,
+        space,
+    );
 
     let axes = fg.axes2d();
-    axes.lines(&bx, &by, &[Color("black")]);
+    axes.lines(&bx, &by, &[Color("black")])
+        .lines(&bbx, &bby, &[Color("blue")]);
 
     println!("Start planner");
     match planner.plan() {
@@ -50,6 +65,7 @@ fn main() {
             println!("Path generated!");
             let (px, py): (Vec<f64>, Vec<f64>) = path.points_iter().map(|p| p.x_y()).unzip();
             axes.lines(&px, &py, &[Color("green")]);
+            println!("Num points: {:?}", px.len());
         }
         None => println!("Unable to generate path"),
     }

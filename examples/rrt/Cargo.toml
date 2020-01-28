@@ -4,7 +4,11 @@ version = "0.1.0"
 authors = ["Travis Sturzl <tsturzl@lefthandrobotics.com>"]
 edition = "2018"
 
+[profile.release]
+lto = true
+
 [dependencies]
 pathplanning = { path = "../.." }
 geo = "0.12.2"
+geo-plot = "0.1.2"
 gnuplot = "0.0.33"
