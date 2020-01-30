@@ -1,7 +1,6 @@
 extern crate gnuplot;
 extern crate pathplanning;
 
-use geo::algorithm::simplify::Simplify;
 use geo::{Coordinate, LineString, Point, Polygon, Rect};
 use gnuplot::{Color, Figure};
 use pathplanning::rrt::{create_circle, Robot, Space, RRT};
