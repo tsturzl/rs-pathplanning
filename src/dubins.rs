@@ -152,6 +152,51 @@ pub fn lrl(alpha: f64, beta: f64, d: f64) -> PlannerResult {
     (Some(t), Some(p), Some(q), LRL_MODE)
 }
 
+fn interpolate(
+    ind: usize,
+    length: f64,
+    mode: &Mode,
+    max_curvature: f64,
+    origin_x: f64,
+    origin_y: f64,
+    origin_yaw: f64,
+    path_x: &mut Vec<f64>,
+    path_y: &mut Vec<f64>,
+    path_yaw: &mut Vec<f64>,
+    directions: &mut Vec<isize>,
+) {
+    if let Mode::S = mode {
+        path_x[ind] = origin_x + length / max_curvature * origin_yaw.cos();
+        path_y[ind] = origin_y + length / max_curvature * origin_yaw.sin();
+        path_yaw[ind] = origin_yaw;
+    } else {
+        let ldx = length.sin() / max_curvature;
+        let mut ldy = 0.0;
+        if let Mode::L = mode {
+            ldy = (1.0 - length.cos()) / max_curvature;
+        } else if let Mode::R = mode {
+            ldy = (1.0 - length.cos()) / -max_curvature;
+        }
+        let gdx = (-origin_yaw).cos() * ldx + (-origin_yaw).sin() * ldy;
+        let gdy = -(-origin_yaw).sin() * ldx + (-origin_yaw).cos() * ldy;
+
+        path_x[ind] = origin_x + gdx;
+        path_y[ind] = origin_y + gdy;
+    }
+
+    if let Mode::L = mode {
+        path_yaw[ind] = origin_yaw + length;
+    } else if let Mode::R = mode {
+        path_yaw[ind] = origin_yaw - length;
+    }
+
+    if length > 0.0 {
+        directions[ind] = 1;
+    } else {
+        directions[ind] = -1;
+    }
+}
+
 pub fn generate_course(
     length: &[f64],
     mode: &[Mode],
@@ -161,10 +206,6 @@ pub fn generate_course(
     py: &mut Vec<f64>,
     pyaw: &mut Vec<f64>,
 ) {
-    // let mut px = vec![0.0_f64];
-    // let mut py = vec![0.0_f64];
-    // let mut pyaw = vec![0.0_f64];
-
     for (m, l) in mode.iter().zip(length.iter()) {
         let mut pd = 0.0;
 
@@ -200,6 +241,97 @@ pub fn generate_course(
     }
 }
 
+fn generate_local_course(
+    lengths: &[f64],
+    mode: &[Mode],
+    max_curvature: f64,
+    step_size: f64,
+    path_x: &mut Vec<f64>,
+    path_y: &mut Vec<f64>,
+    path_yaw: &mut Vec<f64>,
+    directions: &mut Vec<isize>,
+) {
+    let mut ind = 1;
+
+    if lengths[0] > 0.0 {
+        directions[0] = 1
+    } else {
+        directions[0] = -1
+    }
+
+    let mut ll = 0.0;
+
+    let iter = mode.iter().zip(lengths).zip(0..3).map(|a| {
+        let b = a.0;
+        (b.0, b.1, a.1)
+    });
+
+    for (m, l, i) in iter {
+        let mut d = -step_size;
+        if l > &0.0 {
+            d = step_size;
+        }
+
+        let (origin_x, origin_y, origin_yaw) = (path_x[ind], path_y[ind], path_yaw[ind]);
+
+        ind -= 1;
+        let mut pd = d - ll;
+        if i >= 1 && (lengths[i - 1] * lengths[i]) > 0.0 {
+            pd = -d - ll;
+        }
+
+        while pd.abs() <= l.abs() {
+            ind += 1;
+            interpolate(
+                ind,
+                pd,
+                m,
+                max_curvature,
+                origin_x,
+                origin_y,
+                origin_yaw,
+                path_x,
+                path_y,
+                path_yaw,
+                directions,
+            );
+            pd += d;
+        }
+        ll = l - pd - d;
+
+        ind += 1;
+        interpolate(
+            ind,
+            *l,
+            m,
+            max_curvature,
+            origin_x,
+            origin_y,
+            origin_yaw,
+            path_x,
+            path_y,
+            path_yaw,
+            directions,
+        );
+    }
+
+    if path_x.len() <= 1 {
+        path_x.clear();
+        path_y.clear();
+        path_yaw.clear();
+        directions.clear();
+    }
+
+    let mut last = path_x[path_x.len() - 1];
+    while path_x.len() >= 1 && last == 0.0 {
+        last = path_x[path_x.len() - 1];
+        path_x.pop();
+        path_y.pop();
+        path_yaw.pop();
+        directions.pop();
+    }
+}
+
 const ALL_PLANNERS: &[fn(f64, f64, f64) -> PlannerResult] = &[lsl, rsr, lsr, rsl, rlr, lrl];
 struct Planners {
     i: usize,
@@ -232,6 +364,7 @@ pub struct DubinsConfig {
     pub ey: f64,
     pub eyaw: f64,
     pub c: f64,
+    pub step_size: f64,
 }
 
 pub fn dubins_path_planning_from_origin(
@@ -239,7 +372,7 @@ pub fn dubins_path_planning_from_origin(
     ey: f64,
     eyaw: f64,
     c: f64,
-    d_angle: f64,
+    step_size: f64,
 ) -> DubinsPathResult {
     let dx = ex;
     let dy = ey;
@@ -277,15 +410,33 @@ pub fn dubins_path_planning_from_origin(
 
     match (bt, bp, bq, bmode) {
         (Some(bt), Some(bp), Some(bq), Some(bmode)) => {
-            let (mut px, mut py, mut pyaw) = (vec![0.0_f64], vec![0.0_f64], vec![0.0_f64]);
-            generate_course(
-                &[bt, bp, bq],
+            let lengths = [bt, bp, bq];
+            let total_length: f64 = lengths.iter().sum();
+            let n_point = ((total_length / step_size).trunc() as usize) + lengths.len() + 4;
+            let (mut px, mut py, mut pyaw) = (
+                vec![0.0_f64; n_point],
+                vec![0.0_f64; n_point],
+                vec![0.0_f64; n_point],
+            );
+            let mut directions = vec![0_isize; n_point];
+            // generate_course(
+            //     &[bt, bp, bq],
+            //     bmode,
+            //     c,
+            //     d_angle,
+            //     &mut px,
+            //     &mut py,
+            //     &mut pyaw,
+            // );
+            generate_local_course(
+                &lengths,
                 bmode,
                 c,
-                d_angle,
+                step_size,
                 &mut px,
                 &mut py,
                 &mut pyaw,
+                &mut directions,
             );
             Some((px, py, pyaw, Some(bmode), bcost))
         }
@@ -293,7 +444,6 @@ pub fn dubins_path_planning_from_origin(
     }
 }
 
-const D_ANGLE: f64 = PI / 72.0; // 2.5 angular degrees
 pub fn dubins_path_planning(conf: &DubinsConfig) -> DubinsPathResult {
     let sx = conf.sx;
     let sy = conf.sy;
@@ -307,7 +457,7 @@ pub fn dubins_path_planning(conf: &DubinsConfig) -> DubinsPathResult {
     let ley = -(syaw.sin()) * ex + syaw.cos() * ey;
     let leyaw = eyaw - syaw;
 
-    match dubins_path_planning_from_origin(lex, ley, leyaw, c, D_ANGLE) {
+    match dubins_path_planning_from_origin(lex, ley, leyaw, c, conf.step_size) {
         Some((lpx, lpy, lpyaw, mode, clen)) => {
             let px: Vec<f64> = lpx
                 .iter()

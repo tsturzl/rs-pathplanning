@@ -1,4 +1,4 @@
-use crate::dubins::{dubins_path_linestring, dubins_path_planning, DubinsConfig};
+use crate::dubins::{dubins_path_planning, DubinsConfig};
 use geo::algorithm::{
     contains::Contains, euclidean_distance::EuclideanDistance, euclidean_length::EuclideanLength,
     intersects::Intersects,
@@ -233,26 +233,28 @@ fn compute_yaw(from: &Point<f64>, to: &Point<f64>) -> f64 {
     (ty - fy).atan2(tx - fx)
 }
 
-pub fn create_line(from: Arc<Node>, to: Arc<Node>, c: f64) -> LineString<f64> {
-    let (sx, sy) = from.get_point().x_y();
-    let syaw = from.get_yaw();
-    let (ex, ey) = to.get_point().x_y();
-    let eyaw = to.get_yaw();
-    let conf = DubinsConfig {
-        sx,
-        sy,
-        syaw,
-        ex,
-        ey,
-        eyaw,
-        c,
-    };
-    dubins_path_linestring(&conf).expect("Should generate a dubins line")
-}
+// fn create_line(from: Arc<Node>, to: Arc<Node>, c: f64) -> LineString<f64> {
+//     let (sx, sy) = from.get_point().x_y();
+//     let syaw = from.get_yaw();
+//     let (ex, ey) = to.get_point().x_y();
+//     let eyaw = to.get_yaw();
+//     let conf = DubinsConfig {
+//         sx,
+//         sy,
+//         syaw,
+//         ex,
+//         ey,
+//         eyaw,
+//         c,
+//         step_size: STEP_SIZE,
+//     };
+//     dubins_path_linestring(&conf).expect("Should generate a dubins line")
+// }
 
-pub fn line_to_origin(node: Arc<Node>, c: f64) -> LineString<f64> {
+pub fn line_to_origin(node: Arc<Node>, c: f64, step_size: f64) -> LineString<f64> {
     let node_iter = NodeIter { curr: Some(node) };
-    node_iter
+    let l: Vec<(f64, f64)> = node_iter
+        .par_bridge()
         .map(|node| match node.get_parent() {
             Some(parent) => {
                 let (sx, sy) = node.get_coord().x_y();
@@ -267,6 +269,7 @@ pub fn line_to_origin(node: Arc<Node>, c: f64) -> LineString<f64> {
                     ey,
                     eyaw,
                     c,
+                    step_size,
                 };
                 match dubins_path_planning(&conf) {
                     Some((px, py, _, _, _)) => px.into_iter().zip(py.into_iter()).collect(),
@@ -276,7 +279,8 @@ pub fn line_to_origin(node: Arc<Node>, c: f64) -> LineString<f64> {
             None => vec![node.get_coord().x_y()],
         })
         .flatten()
-        .collect()
+        .collect();
+    l.into()
 }
 
 pub struct RRT {
@@ -284,6 +288,7 @@ pub struct RRT {
     goal_yaw: f64,
     max_iter: usize,
     max_dist: f64,
+    step_size: f64,
     space: Space,
     nodes: Arc<Mutex<Vec<Arc<Node>>>>, // note: root node is the first item in this vector
 }
@@ -295,6 +300,7 @@ impl RRT {
         goal: Coordinate<f64>,
         goal_yaw: f64,
         max_iter: usize,
+        step_size: f64,
         space: Space,
     ) -> RRT {
         let root = Arc::new(Node::new_root(start.into(), start_yaw));
@@ -303,6 +309,7 @@ impl RRT {
             goal_yaw,
             max_iter,
             max_dist: std::f64::INFINITY,
+            step_size,
             space,
             nodes: Arc::new(Mutex::new(vec![root])),
         }
@@ -353,7 +360,7 @@ impl RRT {
         //     None => false,
         // }
 
-        let line = line_to_origin(node, self.space.get_steer());
+        let line = line_to_origin(node, self.space.get_steer(), self.step_size);
         self.space.verify(&line)
     }
 
@@ -395,7 +402,8 @@ impl RRT {
         let node_iter = NodeIter {
             curr: Some(goal_node),
         };
-        node_iter
+        let l: Vec<(f64, f64)> = node_iter
+            .par_bridge()
             .map(|node| match node.get_parent() {
                 Some(parent) => {
                     let (sx, sy) = node.get_coord().x_y();
@@ -411,6 +419,7 @@ impl RRT {
                         ey,
                         eyaw,
                         c: 0.8,
+                        step_size: self.step_size,
                     };
                     match dubins_path_planning(&conf) {
                         Some((px, py, _, _, _)) => px.into_iter().zip(py.into_iter()).collect(),
@@ -420,7 +429,8 @@ impl RRT {
                 None => vec![],
             })
             .flatten()
-            .collect()
+            .collect();
+        l.into()
     }
 
     // pub fn old_finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {
