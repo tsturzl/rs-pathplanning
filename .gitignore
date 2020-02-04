@@ -3,3 +3,4 @@
 /example/*/plot.png
 **/*.rs.bk
 Cargo.lock
+tags
