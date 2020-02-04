@@ -8,7 +8,10 @@ use geo_offset::Offset;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use std::f64::consts::PI;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 
 #[allow(dead_code)]
 pub struct Robot {
@@ -364,13 +367,13 @@ impl RRT {
         self.space.verify(&line)
     }
 
-    pub fn check_finish(&self, node: Arc<Node>) -> Option<LineString<f64>> {
+    pub fn check_finish(&self, node: Arc<Node>) -> Option<(LineString<f64>, usize)> {
         let point = self.goal.into();
         let goal_node = Arc::new(Node::new_goal(point, node, self.goal_yaw));
-        let line = self.finalize(goal_node);
+        let (line, node_count) = self.finalize(goal_node);
 
         if self.space.verify(&line) {
-            Some(line)
+            Some((line, node_count))
         } else {
             None
         }
@@ -398,14 +401,16 @@ impl RRT {
 
     //pub fn new_finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {}
 
-    pub fn finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {
+    pub fn finalize(&self, goal_node: Arc<Node>) -> (LineString<f64>, usize) {
         let node_iter = NodeIter {
             curr: Some(goal_node),
         };
-        let l: Vec<(f64, f64)> = node_iter
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut l: Vec<(f64, f64)> = node_iter
             .par_bridge()
             .map(|node| match node.get_parent() {
                 Some(parent) => {
+                    counter.fetch_add(1, Ordering::SeqCst);
                     let (sx, sy) = node.get_coord().x_y();
                     let syaw = node.get_yaw();
                     let (ex, ey) = parent.get_coord().x_y();
@@ -423,14 +428,17 @@ impl RRT {
                     };
                     match dubins_path_planning(&conf) {
                         Some((px, py, _, _, _)) => px.into_iter().zip(py.into_iter()).collect(),
-                        _ => panic!("WTF"),
+                        _ => panic!("Should plan dubins curve"),
                     }
                 }
                 None => vec![],
             })
             .flatten()
             .collect();
-        l.into()
+
+        // these lines get drawn back to the root node, we need to flip it
+        l.reverse();
+        (l.into(), counter.load(Ordering::SeqCst))
     }
 
     // pub fn old_finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {
@@ -474,7 +482,7 @@ impl RRT {
     //     LineString(points)
     // }
 
-    pub fn plan_one(&self) -> Option<LineString<f64>> {
+    pub fn plan_one(&self) -> Option<(LineString<f64>, usize)> {
         if let Some(rnd_node) = self.get_random_node() {
             if self.verify_node(rnd_node.clone()) {
                 self.nodes.lock().unwrap().push(rnd_node.clone());
@@ -488,16 +496,19 @@ impl RRT {
     }
 
     pub fn plan(&self) -> Option<LineString<f64>> {
-        (0..self.max_iter)
+        let result = (0..self.max_iter)
             .into_par_iter()
             .map(|_| self.plan_one())
             .filter_map(|r| r)
             .min_by(|a, b| {
-                let a_len = a.euclidean_length();
-                let b_len = b.euclidean_length();
-                a_len
-                    .partial_cmp(&b_len)
-                    .expect("Compare length of results")
-            })
+                let a_cost = (a.0.euclidean_length().ceil() as usize + a.1) / 2;
+                let b_cost = (b.0.euclidean_length().ceil() as usize + b.1) / 2;
+                a_cost.cmp(&b_cost)
+            });
+
+        match result {
+            Some(r) => Some(r.0),
+            None => None,
+        }
     }
 }

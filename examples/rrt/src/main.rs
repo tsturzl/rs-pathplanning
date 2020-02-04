@@ -50,7 +50,7 @@ fn main() {
         (-45.0_f64).to_radians(),
         (6.0, 10.0).into(),
         45.0_f64.to_radians(),
-        5000,
+        8000,
         0.1,
         space,
     );
