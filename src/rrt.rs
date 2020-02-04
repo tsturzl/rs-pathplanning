@@ -43,17 +43,19 @@ pub fn create_circle(center: Point<f64>, radius: f64) -> Polygon<f64> {
     let (cx, cy) = center.x_y();
     let circum = 2.0 * PI * radius;
     let n = (circum / 1.0).ceil();
-    let mut points = Vec::<(f64, f64)>::new();
-    for _x in 0..(n + 1.0) as usize {
-        let x = _x as f64;
+    let i = (n + 1.0) as usize;
+    let points: Vec<(f64, f64)> = (0..i)
+        .map(|x| {
+            let x = x as f64;
 
-        points.push((
-            ((2.0 * PI / n * x).cos() * radius) + cx,
-            ((2.0 * PI / n * x).sin() * radius) + cy,
-        ))
-    }
+            (
+                ((2.0 * PI / n * x).cos() * radius) + cx,
+                ((2.0 * PI / n * x).sin() * radius) + cy,
+            )
+        })
+        .collect();
 
-    Polygon::new(LineString::from(points), vec![])
+    Polygon::new(points.into(), vec![])
 }
 
 fn buffer_poly(poly: &Polygon<f64>, buffer: f64) -> MultiPolygon<f64> {
@@ -80,7 +82,7 @@ impl Space {
         let mut miny = fy;
         let mut maxy = fy;
 
-        for point in points {
+        points.iter().for_each(|point| {
             let (x, y) = point.x_y();
             if x < minx {
                 minx = x;
@@ -95,7 +97,7 @@ impl Space {
             if y > maxy {
                 maxy = y;
             }
-        }
+        });
 
         let width = robot.get_width() / 2.0;
 
@@ -501,8 +503,8 @@ impl RRT {
             .map(|_| self.plan_one())
             .filter_map(|r| r)
             .min_by(|a, b| {
-                let a_cost = (a.0.euclidean_length().ceil() as usize + a.1) / 2;
-                let b_cost = (b.0.euclidean_length().ceil() as usize + b.1) / 2;
+                let a_cost = a.0.euclidean_length().ceil() as usize + a.1;
+                let b_cost = b.0.euclidean_length().ceil() as usize + b.1;
                 a_cost.cmp(&b_cost)
             });
 

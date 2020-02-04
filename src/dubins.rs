@@ -197,49 +197,49 @@ fn interpolate(
     }
 }
 
-pub fn generate_course(
-    length: &[f64],
-    mode: &[Mode],
-    c: f64,
-    d_angle: f64,
-    px: &mut Vec<f64>,
-    py: &mut Vec<f64>,
-    pyaw: &mut Vec<f64>,
-) {
-    for (m, l) in mode.iter().zip(length.iter()) {
-        let mut pd = 0.0;
-
-        let mut d = d_angle;
-
-        if let Mode::S = m {
-            d = 1.0 * c;
-        }
-
-        while pd < (l - d).abs() {
-            px.push(px[px.len() - 1] + d / c * pyaw[pyaw.len() - 1].cos());
-            py.push(py[py.len() - 1] + d / c * pyaw[pyaw.len() - 1].sin());
-
-            match m {
-                Mode::L => pyaw.push(pyaw[pyaw.len() - 1] + d),
-                Mode::S => pyaw.push(pyaw[pyaw.len() - 1]),
-                Mode::R => pyaw.push(pyaw[pyaw.len() - 1] - d),
-            }
-            pd += d;
-        }
-
-        d = l - pd;
-
-        px.push(px[px.len() - 1] + d / c * pyaw[pyaw.len() - 1].cos());
-        py.push(py[py.len() - 1] + d / c * pyaw[pyaw.len() - 1].sin());
-
-        match m {
-            Mode::L => pyaw.push(pyaw[pyaw.len() - 1] + d),
-            Mode::S => pyaw.push(pyaw[pyaw.len() - 1]),
-            Mode::R => pyaw.push(pyaw[pyaw.len() - 1] - d),
-        }
-        // pd += d; // unused?
-    }
-}
+// fn generate_course(
+//     length: &[f64],
+//     mode: &[Mode],
+//     c: f64,
+//     d_angle: f64,
+//     px: &mut Vec<f64>,
+//     py: &mut Vec<f64>,
+//     pyaw: &mut Vec<f64>,
+// ) {
+//     for (m, l) in mode.iter().zip(length.iter()) {
+//         let mut pd = 0.0;
+//
+//         let mut d = d_angle;
+//
+//         if let Mode::S = m {
+//             d = 1.0 * c;
+//         }
+//
+//         while pd < (l - d).abs() {
+//             px.push(px[px.len() - 1] + d / c * pyaw[pyaw.len() - 1].cos());
+//             py.push(py[py.len() - 1] + d / c * pyaw[pyaw.len() - 1].sin());
+//
+//             match m {
+//                 Mode::L => pyaw.push(pyaw[pyaw.len() - 1] + d),
+//                 Mode::S => pyaw.push(pyaw[pyaw.len() - 1]),
+//                 Mode::R => pyaw.push(pyaw[pyaw.len() - 1] - d),
+//             }
+//             pd += d;
+//         }
+//
+//         d = l - pd;
+//
+//         px.push(px[px.len() - 1] + d / c * pyaw[pyaw.len() - 1].cos());
+//         py.push(py[py.len() - 1] + d / c * pyaw[pyaw.len() - 1].sin());
+//
+//         match m {
+//             Mode::L => pyaw.push(pyaw[pyaw.len() - 1] + d),
+//             Mode::S => pyaw.push(pyaw[pyaw.len() - 1]),
+//             Mode::R => pyaw.push(pyaw[pyaw.len() - 1] - d),
+//         }
+//         // pd += d; // unused?
+//     }
+// }
 
 fn generate_local_course(
     lengths: &[f64],
@@ -267,18 +267,16 @@ fn generate_local_course(
     });
 
     for (m, l, i) in iter {
-        let mut d = -step_size;
-        if l > &0.0 {
-            d = step_size;
-        }
+        let d = if l > &0.0 { step_size } else { -step_size };
 
         let (origin_x, origin_y, origin_yaw) = (path_x[ind], path_y[ind], path_yaw[ind]);
 
         ind -= 1;
-        let mut pd = d - ll;
-        if i >= 1 && (lengths[i - 1] * lengths[i]) > 0.0 {
-            pd = -d - ll;
-        }
+        let mut pd = if i >= 1 && (lengths[i - 1] * lengths[i]) > 0.0 {
+            -d - ll
+        } else {
+            d - ll
+        };
 
         while pd.abs() <= l.abs() {
             ind += 1;
