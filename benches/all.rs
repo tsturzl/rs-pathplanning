@@ -44,7 +44,7 @@ fn bench_plan_one(c: &mut Criterion) {
     });
 }
 
-fn bench_plan_100(c: &mut Criterion) {
+fn bench_plan_10(c: &mut Criterion) {
     c.bench_function("RRT::plan_one", |b| {
         let obstacle_list = vec![
             // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 10.0, y: 110.0}).into(),
@@ -77,7 +77,7 @@ fn bench_plan_100(c: &mut Criterion) {
             (-45.0_f64).to_radians(),
             (6.0, 10.0).into(),
             45.0_f64.to_radians(),
-            100,
+            10,
             0.1,
             space,
         );
@@ -103,5 +103,5 @@ fn bench_dubins(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_plan_one, bench_plan_100, bench_dubins);
+criterion_group!(benches, bench_plan_one, bench_plan_10, bench_dubins);
 criterion_main!(benches);
