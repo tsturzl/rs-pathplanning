@@ -5,11 +5,9 @@ use geo::algorithm::{
 };
 use geo::{Coordinate, LineString, MultiPolygon, Point, Polygon};
 use geo_offset::Offset;
-use kdtree::distance::squared_euclidean;
-use kdtree::ErrorKind;
-use kdtree::KdTree;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
+use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use std::f64::consts::PI;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -214,10 +212,37 @@ impl Node {
     pub fn get_yaw(&self) -> f64 {
         self.yaw
     }
+}
 
-    pub fn get_xy_arr(&self) -> [f64; 2] {
-        let (x, y) = self.point.x_y();
-        [x, y]
+struct NodeEnvelope {
+    inner: Arc<Node>,
+}
+
+impl NodeEnvelope {
+    pub fn new(inner: Arc<Node>) -> NodeEnvelope {
+        NodeEnvelope { inner }
+    }
+
+    pub fn get_inner(&self) -> Arc<Node> {
+        self.inner.clone()
+    }
+}
+
+impl RTreeObject for NodeEnvelope {
+    type Envelope = AABB<[f64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        let (x, y) = self.inner.get_point().x_y();
+        AABB::from_point([x, y])
+    }
+}
+
+impl PointDistance for NodeEnvelope {
+    fn distance_2(&self, point: &[f64; 2]) -> f64 {
+        let p1 = Point::from((point[0], point[1]));
+        let p2 = self.inner.get_point();
+
+        p1.euclidean_distance(p2)
     }
 }
 
@@ -296,6 +321,8 @@ pub fn line_to_origin(node: Arc<Node>, c: f64, step_size: f64) -> LineString<f64
     l.into()
 }
 
+type SpacialTree = Arc<Mutex<RTree<NodeEnvelope>>>;
+
 pub struct RRT {
     goal: Coordinate<f64>,
     goal_yaw: f64,
@@ -303,7 +330,7 @@ pub struct RRT {
     max_dist: f64,
     step_size: f64,
     space: Space,
-    kd: Arc<Mutex<KdTree<f64, Arc<Node>, [f64; 2]>>>,
+    spatial: SpacialTree,
 }
 
 impl RRT {
@@ -317,11 +344,8 @@ impl RRT {
         space: Space,
     ) -> RRT {
         let root = Arc::new(Node::new_root(start.into(), start_yaw));
-        let kd = Arc::new(Mutex::new(KdTree::new(2)));
-        kd.lock()
-            .unwrap()
-            .add(root.get_xy_arr(), root.clone())
-            .expect("Should add node to KD-Tree");
+        let spatial = Arc::new(Mutex::new(RTree::new()));
+        spatial.lock().unwrap().insert(NodeEnvelope::new(root));
         RRT {
             goal,
             goal_yaw,
@@ -329,7 +353,7 @@ impl RRT {
             max_dist: std::f64::INFINITY,
             step_size,
             space,
-            kd,
+            spatial,
         }
     }
 
@@ -354,22 +378,18 @@ impl RRT {
     //         })
     // }
 
-    pub fn get_nearest_node_kd(&self, point: &Point<f64>) -> Option<Arc<Node>> {
+    pub fn get_nearest_node(&self, point: &Point<f64>) -> Option<Arc<Node>> {
         let (x, y) = point.x_y();
-        let xy = [x, y];
 
         match self
-            .kd
+            .spatial
             .clone()
             .lock()
             .unwrap()
-            .nearest(&xy, 1, &squared_euclidean)
+            .nearest_neighbor(&[x, y])
         {
-            Ok(result) => {
-                let node = result[0].1;
-                Some(node.clone())
-            }
-            Err(_) => None,
+            Some(node) => Some(node.get_inner()),
+            None => None,
         }
     }
 
@@ -388,7 +408,7 @@ impl RRT {
     // }
     pub fn get_random_node(&self) -> Option<Arc<Node>> {
         let point = self.space.rand_point();
-        match self.get_nearest_node_kd(&point) {
+        match self.get_nearest_node(&point) {
             Some(nearest_node) => Some(Arc::new(Node::new(point, nearest_node))),
             None => None,
         }
@@ -526,11 +546,10 @@ impl RRT {
     pub fn plan_one(&self) -> Option<(LineString<f64>, usize)> {
         if let Some(rnd_node) = self.get_random_node() {
             if self.verify_node(rnd_node.clone()) {
-                self.kd
+                self.spatial
                     .lock()
                     .unwrap()
-                    .add(rnd_node.get_xy_arr(), rnd_node.clone())
-                    .expect("Should add node to kdtree");
+                    .insert(NodeEnvelope::new(rnd_node.clone()));
 
                 if let Some(finish) = self.check_finish(rnd_node) {
                     return Some(finish);
