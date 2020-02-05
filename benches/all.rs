@@ -103,5 +103,5 @@ fn bench_dubins(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_plan_one, bench_dubins);
+criterion_group!(benches, bench_plan_one, bench_plan_100, bench_dubins);
 criterion_main!(benches);
