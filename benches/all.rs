@@ -31,15 +31,15 @@ fn bench_plan_one(c: &mut Criterion) {
         let robot = rrt::Robot::new(1.0, 1.0, 0.8);
         let space = rrt::Space::new(bounds, robot, obstacle_list.clone());
 
-        let planner = rrt::RRT::new(
+        let planner = black_box(rrt::RRT::new(
             (-5.0, -5.0).into(),
             (-45.0_f64).to_radians(),
             (6.0, 10.0).into(),
             45.0_f64.to_radians(),
-            8000,
+            black_box(8000),
             0.1,
             space,
-        );
+        ));
 
         b.iter(|| planner.plan_one());
     });
@@ -89,7 +89,7 @@ fn bench_plan_10(c: &mut Criterion) {
 
 fn bench_dubins(c: &mut Criterion) {
     c.bench_function("Dubins::dubins_path_planning", |b| {
-        let conf = dubins::DubinsConfig {
+        let conf = black_box(dubins::DubinsConfig {
             sx: 1.0,
             sy: 1.0,
             syaw: 45.0_f64.to_radians(),
@@ -98,7 +98,7 @@ fn bench_dubins(c: &mut Criterion) {
             eyaw: (-45.0_f64).to_radians(),
             c: 1.0,
             step_size: 0.1,
-        };
+        });
 
         b.iter(|| dubins::dubins_path_planning(&conf))
     });
