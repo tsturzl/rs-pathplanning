@@ -104,13 +104,15 @@ fn bench_dubins(c: &mut Criterion) {
     });
 }
 
-fn long_warmup() -> Criterion {
-    Criterion::default().warm_up_time(Duration::from_secs(15))
+fn long() -> Criterion {
+    Criterion::default()
+        .warm_up_time(Duration::from_secs(5))
+        .measurement_time(Duration::from_secs(15))
 }
 
 criterion_group! {
     name = benches;
-    config = long_warmup();
-    targets = bench_plan_one, bench_plan_10, bench_dubins
+    config = long();
+    targets = bench_plan_one, bench_dubins
 }
 criterion_main!(benches);
