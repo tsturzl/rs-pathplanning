@@ -45,7 +45,7 @@ fn bench_plan_one(c: &mut Criterion) {
 }
 
 fn bench_plan_10(c: &mut Criterion) {
-    c.bench_function("RRT::plan_one", |b| {
+    c.bench_function("RRT::plan_100", |b| {
         let obstacle_list = vec![
             // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 10.0, y: 110.0}).into(),
             // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 90.0, y: 48.0}).into(),
