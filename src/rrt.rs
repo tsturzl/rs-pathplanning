@@ -5,6 +5,9 @@ use geo::algorithm::{
 };
 use geo::{Coordinate, LineString, MultiPolygon, Point, Polygon};
 use geo_offset::Offset;
+use kdtree::distance::squared_euclidean;
+use kdtree::ErrorKind;
+use kdtree::KdTree;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use std::f64::consts::PI;
@@ -211,6 +214,11 @@ impl Node {
     pub fn get_yaw(&self) -> f64 {
         self.yaw
     }
+
+    pub fn get_xy_arr(&self) -> [f64; 2] {
+        let (x, y) = self.point.x_y();
+        [x, y]
+    }
 }
 
 // Iterate nodes back to root
@@ -296,6 +304,7 @@ pub struct RRT {
     step_size: f64,
     space: Space,
     nodes: Arc<Mutex<Vec<Arc<Node>>>>, // note: root node is the first item in this vector
+    kd: Arc<Mutex<KdTree<f64, Arc<Node>, [f64; 2]>>>,
 }
 
 impl RRT {
@@ -309,6 +318,11 @@ impl RRT {
         space: Space,
     ) -> RRT {
         let root = Arc::new(Node::new_root(start.into(), start_yaw));
+        let kd = Arc::new(Mutex::new(KdTree::new(2)));
+        kd.lock()
+            .unwrap()
+            .add(root.get_xy_arr(), root.clone())
+            .expect("Should add node to KD-Tree");
         RRT {
             goal,
             goal_yaw,
@@ -317,6 +331,7 @@ impl RRT {
             step_size,
             space,
             nodes: Arc::new(Mutex::new(vec![root])),
+            kd,
         }
     }
 
@@ -341,16 +356,42 @@ impl RRT {
             })
     }
 
+    pub fn get_nearest_node_kd(&self, point: &Point<f64>) -> Option<Arc<Node>> {
+        let (x, y) = point.x_y();
+        let xy = [x, y];
+
+        match self
+            .kd
+            .clone()
+            .lock()
+            .unwrap()
+            .nearest(&xy, 1, &squared_euclidean)
+        {
+            Ok(result) => {
+                let node = result[0].1;
+                Some(node.clone())
+            }
+            Err(_) => None,
+        }
+    }
+
+    // pub fn get_random_node(&self) -> Option<Arc<Node>> {
+    //     let point = self.space.rand_point();
+    //     match self.get_nearest_node(&point) {
+    //         Some((nearest_node, dist)) => {
+    //             if dist <= self.max_dist {
+    //                 Some(Arc::new(Node::new(point, nearest_node)))
+    //             } else {
+    //                 None
+    //             }
+    //         }
+    //         None => None,
+    //     }
+    // }
     pub fn get_random_node(&self) -> Option<Arc<Node>> {
         let point = self.space.rand_point();
-        match self.get_nearest_node(&point) {
-            Some((nearest_node, dist)) => {
-                if dist <= self.max_dist {
-                    Some(Arc::new(Node::new(point, nearest_node)))
-                } else {
-                    None
-                }
-            }
+        match self.get_nearest_node_kd(&point) {
+            Some(nearest_node) => Some(Arc::new(Node::new(point, nearest_node))),
             None => None,
         }
     }
@@ -488,6 +529,11 @@ impl RRT {
         if let Some(rnd_node) = self.get_random_node() {
             if self.verify_node(rnd_node.clone()) {
                 self.nodes.lock().unwrap().push(rnd_node.clone());
+                self.kd
+                    .lock()
+                    .unwrap()
+                    .add(rnd_node.get_xy_arr(), rnd_node.clone())
+                    .expect("Should add node to kdtree");
 
                 if let Some(finish) = self.check_finish(rnd_node) {
                     return Some(finish);
