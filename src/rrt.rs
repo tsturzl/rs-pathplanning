@@ -303,7 +303,6 @@ pub struct RRT {
     max_dist: f64,
     step_size: f64,
     space: Space,
-    nodes: Arc<Mutex<Vec<Arc<Node>>>>, // note: root node is the first item in this vector
     kd: Arc<Mutex<KdTree<f64, Arc<Node>, [f64; 2]>>>,
 }
 
@@ -330,31 +329,30 @@ impl RRT {
             max_dist: std::f64::INFINITY,
             step_size,
             space,
-            nodes: Arc::new(Mutex::new(vec![root])),
             kd,
         }
     }
 
     // a KD-Tree could speed this up
-    pub fn get_nearest_node(&self, point: &Point<f64>) -> Option<(Arc<Node>, f64)> {
-        self.nodes
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(|node| {
-                let dist = point.euclidean_distance(node.get_point());
+    // pub fn get_nearest_node(&self, point: &Point<f64>) -> Option<(Arc<Node>, f64)> {
+    //     self.nodes
+    //         .lock()
+    //         .unwrap()
+    //         .iter()
+    //         .filter_map(|node| {
+    //             let dist = point.euclidean_distance(node.get_point());
 
-                if dist <= self.max_dist && dist >= 2.0 {
-                    Some((node.clone(), dist))
-                } else {
-                    None
-                }
-            })
-            .min_by(|a, b| {
-                a.1.partial_cmp(&b.1)
-                    .expect("Node lengths(<f64>) should compare.")
-            })
-    }
+    //             if dist <= self.max_dist && dist >= 2.0 {
+    //                 Some((node.clone(), dist))
+    //             } else {
+    //                 None
+    //             }
+    //         })
+    //         .min_by(|a, b| {
+    //             a.1.partial_cmp(&b.1)
+    //                 .expect("Node lengths(<f64>) should compare.")
+    //         })
+    // }
 
     pub fn get_nearest_node_kd(&self, point: &Point<f64>) -> Option<Arc<Node>> {
         let (x, y) = point.x_y();
@@ -528,7 +526,6 @@ impl RRT {
     pub fn plan_one(&self) -> Option<(LineString<f64>, usize)> {
         if let Some(rnd_node) = self.get_random_node() {
             if self.verify_node(rnd_node.clone()) {
-                self.nodes.lock().unwrap().push(rnd_node.clone());
                 self.kd
                     .lock()
                     .unwrap()
