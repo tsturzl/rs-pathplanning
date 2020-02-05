@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use geo::{LineString, Point, Polygon};
 use pathplanning::{dubins, rrt};
+use std::time::Duration;
 
 fn bench_plan_one(c: &mut Criterion) {
     c.bench_function("RRT::plan_one", |b| {
@@ -45,7 +46,7 @@ fn bench_plan_one(c: &mut Criterion) {
 }
 
 fn bench_plan_10(c: &mut Criterion) {
-    c.bench_function("RRT::plan_100", |b| {
+    c.bench_function("RRT::plan_10", |b| {
         let obstacle_list = vec![
             // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 10.0, y: 110.0}).into(),
             // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 90.0, y: 48.0}).into(),
@@ -103,5 +104,13 @@ fn bench_dubins(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_plan_one, bench_plan_10, bench_dubins);
+fn long_warmup() -> Criterion {
+    Criterion::default().warm_up_time(Duration::from_secs(15))
+}
+
+criterion_group! {
+    name = benches;
+    config = long_warmup();
+    targets = bench_plan_one, bench_plan_10, bench_dubins
+}
 criterion_main!(benches);
