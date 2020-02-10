@@ -563,8 +563,8 @@ impl RRT {
             .map(|_| self.plan_one())
             .filter_map(|r| r)
             .min_by(|a, b| {
-                let a_cost = a.0.euclidean_length().ceil() as usize + a.1;
-                let b_cost = b.0.euclidean_length().ceil() as usize + b.1;
+                let a_cost = a.0.euclidean_length().ceil() as usize;
+                let b_cost = b.0.euclidean_length().ceil() as usize;
                 a_cost.cmp(&b_cost)
             });
 
