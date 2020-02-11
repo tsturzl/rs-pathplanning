@@ -3,7 +3,7 @@ use geo::algorithm::{
     contains::Contains, euclidean_distance::EuclideanDistance, euclidean_length::EuclideanLength,
     intersects::Intersects,
 };
-use geo::{Coordinate, LineString, MultiPolygon, Point, Polygon};
+use geo::{Coordinate, LineString, Point, Polygon};
 use geo_offset::Offset;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
@@ -59,8 +59,12 @@ pub fn create_circle(center: Point<f64>, radius: f64) -> Polygon<f64> {
     Polygon::new(points.into(), vec![])
 }
 
-fn buffer_poly(poly: &Polygon<f64>, buffer: f64) -> MultiPolygon<f64> {
-    poly.offset(buffer).expect("polygon to set a buffer")
+fn buffer_poly(poly: &Polygon<f64>, buffer: f64) -> Polygon<f64> {
+    poly.offset(buffer)
+        .expect("polygon to set a buffer")
+        .into_iter()
+        .last()
+        .expect("should get buffered polygon")
 }
 
 pub struct Space {
@@ -105,15 +109,10 @@ impl Space {
         let obstacles = obstacle_list
             .iter()
             .map(|o| buffer_poly(o, width))
-            .map(|p| -> Vec<Polygon<f64>> { p.into_iter().collect() })
-            .flatten()
             .collect();
 
         Space {
-            bounds: buffer_poly(&bounds, -width)
-                .into_iter()
-                .last()
-                .expect("should provide dialated polygon"),
+            bounds: buffer_poly(&bounds, -width),
             robot,
             obstacles,
             minx,
@@ -138,12 +137,24 @@ impl Space {
         }
     }
 
-    pub fn rand_point(&self) -> Point<f64> {
+    pub fn rand_point(&self, goal: &Point<f64>) -> Point<f64> {
         let mut rng = thread_rng();
-        let randx: f64 = rng.gen_range(self.minx, self.maxx);
-        let randy: f64 = rng.gen_range(self.miny, self.maxy);
 
-        Point::new(randx, randy)
+        (0..10)
+            .map(|_| {
+                let mut randx: f64 = rng.gen_range(self.minx, self.maxx);
+                let mut randy: f64 = rng.gen_range(self.miny, self.maxy);
+
+                Point::new(randx, randy)
+            })
+            .min_by(|x, y| {
+                let xdist = goal.euclidean_distance(x);
+                let ydist = goal.euclidean_distance(y);
+                xdist
+                    .partial_cmp(&ydist)
+                    .expect("should compare biase for rng")
+            })
+            .expect("should produce a weighted random number")
     }
 
     pub fn get_steer(&self) -> f64 {
@@ -405,7 +416,7 @@ impl RRT {
     //     }
     // }
     pub fn get_random_node(&self) -> Option<Arc<Node>> {
-        let point = self.space.rand_point();
+        let point = self.space.rand_point(&self.goal.into());
         match self.get_nearest_node(&point) {
             Some(nearest_node) => Some(Arc::new(Node::new(point, nearest_node))),
             None => None,
@@ -563,9 +574,11 @@ impl RRT {
             .map(|_| self.plan_one())
             .filter_map(|r| r)
             .min_by(|a, b| {
-                let a_cost = a.0.euclidean_length().ceil() as usize;
-                let b_cost = b.0.euclidean_length().ceil() as usize;
-                a_cost.cmp(&b_cost)
+                let a_cost = a.0.euclidean_length();
+                let b_cost = b.0.euclidean_length();
+                a_cost
+                    .partial_cmp(&b_cost)
+                    .expect("should compared route costs")
             });
 
         match result {
