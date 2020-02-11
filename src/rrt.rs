@@ -137,24 +137,13 @@ impl Space {
         }
     }
 
-    pub fn rand_point(&self, goal: &Point<f64>) -> Point<f64> {
+    pub fn rand_point(&self) -> Point<f64> {
         let mut rng = thread_rng();
 
-        (0..10)
-            .map(|_| {
-                let mut randx: f64 = rng.gen_range(self.minx, self.maxx);
-                let mut randy: f64 = rng.gen_range(self.miny, self.maxy);
+        let randx: f64 = rng.gen_range(self.minx, self.maxx);
+        let randy: f64 = rng.gen_range(self.miny, self.maxy);
 
-                Point::new(randx, randy)
-            })
-            .min_by(|x, y| {
-                let xdist = goal.euclidean_distance(x);
-                let ydist = goal.euclidean_distance(y);
-                xdist
-                    .partial_cmp(&ydist)
-                    .expect("should compare biase for rng")
-            })
-            .expect("should produce a weighted random number")
+        Point::new(randx, randy)
     }
 
     pub fn get_steer(&self) -> f64 {
@@ -416,7 +405,7 @@ impl RRT {
     //     }
     // }
     pub fn get_random_node(&self) -> Option<Arc<Node>> {
-        let point = self.space.rand_point(&self.goal.into());
+        let point = self.space.rand_point();
         match self.get_nearest_node(&point) {
             Some(nearest_node) => Some(Arc::new(Node::new(point, nearest_node))),
             None => None,
@@ -437,13 +426,13 @@ impl RRT {
         self.space.verify(&line)
     }
 
-    pub fn check_finish(&self, node: Arc<Node>) -> Option<(LineString<f64>, usize)> {
+    pub fn check_finish(&self, node: Arc<Node>) -> Option<LineString<f64>> {
         let point = self.goal.into();
         let goal_node = Arc::new(Node::new_goal(point, node, self.goal_yaw));
-        let (line, node_count) = self.finalize(goal_node);
+        let line = self.finalize(goal_node);
 
         if self.space.verify(&line) {
-            Some((line, node_count))
+            Some(line)
         } else {
             None
         }
@@ -471,16 +460,14 @@ impl RRT {
 
     //pub fn new_finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {}
 
-    pub fn finalize(&self, goal_node: Arc<Node>) -> (LineString<f64>, usize) {
+    pub fn finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {
         let node_iter = NodeIter {
             curr: Some(goal_node),
         };
-        let counter = Arc::new(AtomicUsize::new(0));
         let mut l: Vec<(f64, f64)> = node_iter
             .par_bridge()
             .map(|node| match node.get_parent() {
                 Some(parent) => {
-                    counter.fetch_add(1, Ordering::SeqCst);
                     let (sx, sy) = node.get_coord().x_y();
                     let syaw = node.get_yaw();
                     let (ex, ey) = parent.get_coord().x_y();
@@ -508,7 +495,7 @@ impl RRT {
 
         // these lines get drawn back to the root node, we need to flip it
         l.reverse();
-        (l.into(), counter.load(Ordering::SeqCst))
+        l.into()
     }
 
     // pub fn old_finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {
@@ -552,7 +539,7 @@ impl RRT {
     //     LineString(points)
     // }
 
-    pub fn plan_one(&self) -> Option<(LineString<f64>, usize)> {
+    pub fn plan_one(&self) -> Option<LineString<f64>> {
         if let Some(rnd_node) = self.get_random_node() {
             if self.verify_node(rnd_node.clone()) {
                 self.spatial
@@ -569,21 +556,16 @@ impl RRT {
     }
 
     pub fn plan(&self) -> Option<LineString<f64>> {
-        let result = (0..self.max_iter)
+        (0..self.max_iter)
             .into_par_iter()
             .map(|_| self.plan_one())
             .filter_map(|r| r)
             .min_by(|a, b| {
-                let a_cost = a.0.euclidean_length();
-                let b_cost = b.0.euclidean_length();
+                let a_cost = a.euclidean_length();
+                let b_cost = b.euclidean_length();
                 a_cost
                     .partial_cmp(&b_cost)
                     .expect("should compared route costs")
-            });
-
-        match result {
-            Some(r) => Some(r.0),
-            None => None,
-        }
+            })
     }
 }
