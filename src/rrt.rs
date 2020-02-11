@@ -9,10 +9,7 @@ use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use std::f64::consts::PI;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 
 #[allow(dead_code)]
 pub struct Robot {
