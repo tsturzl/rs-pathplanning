@@ -9,15 +9,23 @@ fn main() {
     let mut fg = Figure::new();
 
     let obstacle_list = vec![
-        // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 10.0, y: 110.0}).into(),
-        // Rect::new(Coordinate{x: 0.0, y: 30.0}, Coordinate{x: 90.0, y: 48.0}).into(),
-        // Rect::new(Coordinate{x: 80.0, y: 30.0}, Coordinate{x: 110.0, y: 113.0}).into(),
-        create_circle(Point::new(5.0, 5.0), 1.0),
-        create_circle(Point::new(3.0, 6.0), 2.0),
-        create_circle(Point::new(3.0, 8.0), 2.0),
-        create_circle(Point::new(3.0, 10.0), 2.0),
-        create_circle(Point::new(7.0, 5.0), 2.0),
-        create_circle(Point::new(9.0, 5.0), 2.0),
+        Rect::new(
+            Coordinate { x: 0.0, y: 3.0 },
+            Coordinate { x: 1.0, y: 11.0 },
+        )
+        .into(),
+        Rect::new(Coordinate { x: 0.0, y: 3.0 }, Coordinate { x: 9.0, y: 4.8 }).into(),
+        Rect::new(
+            Coordinate { x: 8.0, y: 3.0 },
+            Coordinate { x: 11.0, y: 11.0 },
+        )
+        .into(),
+        // create_circle(Point::new(5.0, 5.0), 1.0),
+        // create_circle(Point::new(3.0, 6.0), 2.0),
+        // create_circle(Point::new(3.0, 8.0), 2.0),
+        // create_circle(Point::new(3.0, 10.0), 2.0),
+        // create_circle(Point::new(7.0, 5.0), 2.0),
+        // create_circle(Point::new(9.0, 5.0), 2.0),
         // create_circle(Point::new(80.0, 100.0), 10.0),
     ];
 
@@ -46,7 +54,7 @@ fn main() {
         .unzip();
 
     let planner = RRT::new(
-        (-5.0, -5.0).into(),
+        (5.0, 0.0).into(),
         (-45.0_f64).to_radians(),
         (6.0, 10.0).into(),
         45.0_f64.to_radians(),

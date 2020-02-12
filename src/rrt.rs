@@ -11,6 +11,8 @@ use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use std::f64::consts::PI;
 use std::sync::{Arc, Mutex};
 
+const RECURSION_LIMIT: usize = 16;
+
 #[allow(dead_code)]
 pub struct Robot {
     width: f64,
@@ -457,10 +459,52 @@ impl RRT {
 
     //pub fn new_finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {}
 
+    // Trim out unneeded nodes in the tree to reduce length
+    pub fn optimize(&self, node: Arc<Node>, i: usize) -> Option<Arc<Node>> {
+        if i >= RECURSION_LIMIT {
+            return None;
+        }
+
+        let node_iter = NodeIter {
+            curr: Some(node.clone()),
+        };
+        let nodes_vec: Vec<Arc<Node>> = node_iter.collect();
+
+        for to_node in nodes_vec.into_iter().rev() {
+            let new_node = Arc::new(Node::new(node.get_coord().into(), to_node.clone()));
+
+            let line = line_to_origin(new_node.clone(), self.space.get_steer(), self.step_size);
+            if self.space.verify(&line) {
+                match self.optimize(to_node, i + 1) {
+                    Some(to_node) => {
+                        return Some(Arc::new(Node::new(node.get_coord().into(), to_node)))
+                    }
+                    None => return Some(new_node),
+                }
+            }
+        }
+        None
+    }
+
+    pub fn optimize_from_goal(&self, goal_node: Arc<Node>) -> Arc<Node> {
+        match goal_node.get_parent() {
+            Some(parent) => match self.optimize(parent, 0) {
+                Some(n) => Arc::new(Node::new_goal(
+                    goal_node.get_coord().into(),
+                    n,
+                    self.goal_yaw,
+                )),
+                None => goal_node,
+            },
+            None => goal_node,
+        }
+    }
+
     pub fn finalize(&self, goal_node: Arc<Node>) -> LineString<f64> {
         let node_iter = NodeIter {
-            curr: Some(goal_node),
+            curr: Some(self.optimize_from_goal(goal_node)),
         };
+
         let mut l: Vec<(f64, f64)> = node_iter
             .par_bridge()
             .map(|node| match node.get_parent() {
@@ -477,7 +521,7 @@ impl RRT {
                         ex,
                         ey,
                         eyaw,
-                        c: 0.8,
+                        c: self.space.get_steer(),
                         step_size: self.step_size,
                     };
                     match dubins_path_planning(&conf) {
@@ -553,16 +597,24 @@ impl RRT {
     }
 
     pub fn plan(&self) -> Option<LineString<f64>> {
-        (0..self.max_iter)
-            .into_par_iter()
-            .map(|_| self.plan_one())
-            .filter_map(|r| r)
-            .min_by(|a, b| {
-                let a_cost = a.euclidean_length();
-                let b_cost = b.euclidean_length();
-                a_cost
-                    .partial_cmp(&b_cost)
-                    .expect("should compared route costs")
-            })
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            // .stack_size(32 * 1024 * 1024)
+            .build()
+            .unwrap();
+
+        pool.install(|| {
+            (0..self.max_iter)
+                .into_par_iter()
+                .map(|_| self.plan_one())
+                .filter_map(|r| r)
+                .min_by(|a, b| {
+                    let a_cost = a.euclidean_length();
+                    let b_cost = b.euclidean_length();
+                    a_cost
+                        .partial_cmp(&b_cost)
+                        .expect("should compared route costs")
+                })
+        })
     }
 }
