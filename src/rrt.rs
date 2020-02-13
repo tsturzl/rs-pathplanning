@@ -78,8 +78,9 @@ pub struct Space {
 
 impl Space {
     pub fn new(bounds: Polygon<f64>, robot: Robot, obstacle_list: Vec<Polygon<f64>>) -> Space {
-        let ext = bounds.exterior();
-        let points: Vec<Point<f64>> = ext.points_iter().collect();
+        let width = robot.get_width() / 2.0;
+        let bounds = buffer_poly(&bounds, -width);
+        let points: Vec<Point<f64>> = bounds.exterior().points_iter().collect();
         let (fx, fy) = points[0].x_y();
         let mut minx = fx;
         let mut maxx = fx;
@@ -103,15 +104,13 @@ impl Space {
             }
         });
 
-        let width = robot.get_width() / 2.0;
-
         let obstacles = obstacle_list
             .iter()
             .map(|o| buffer_poly(o, width))
             .collect();
 
         Space {
-            bounds: buffer_poly(&bounds, -width),
+            bounds,
             robot,
             obstacles,
             minx,
