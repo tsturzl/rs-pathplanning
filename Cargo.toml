@@ -1,6 +1,6 @@
 [package]
 name = "pathplanning"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Travis Sturzl <tsturzl@lefthandrobotics.com>"]
 edition = "2018"
 
