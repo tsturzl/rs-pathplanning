@@ -361,19 +361,17 @@ pub struct DubinsConfig {
     pub ex: f64,
     pub ey: f64,
     pub eyaw: f64,
-    pub c: f64,
+    pub turn_radius: f64,
     pub step_size: f64,
 }
 
 pub fn dubins_path_planning_from_origin(
-    ex: f64,
-    ey: f64,
+    dx: f64,
+    dy: f64,
     eyaw: f64,
     c: f64,
     step_size: f64,
 ) -> DubinsPathResult {
-    let dx = ex;
-    let dy = ey;
     let hypot = dx.hypot(dy);
     let d = hypot * c;
 
@@ -443,46 +441,30 @@ pub fn dubins_path_planning_from_origin(
 }
 
 pub fn dubins_path_planning(conf: &DubinsConfig) -> DubinsPathResult {
-    let sx = conf.sx;
-    let sy = conf.sy;
     let ex = conf.ex - conf.sx;
     let ey = conf.ey - conf.sy;
-    let syaw = conf.syaw;
-    let eyaw = conf.eyaw;
-    let c = conf.c;
+    let c = 1.0 / conf.turn_radius;
 
-    let lex = syaw.cos() * ex + syaw.sin() * ey;
-    let ley = -(syaw.sin()) * ex + syaw.cos() * ey;
-    let leyaw = eyaw - syaw;
+    let lex = conf.syaw.cos() * ex + conf.syaw.sin() * ey;
+    let ley = -(conf.syaw.sin()) * ex + conf.syaw.cos() * ey;
+    let leyaw = conf.eyaw - conf.syaw;
 
     match dubins_path_planning_from_origin(lex, ley, leyaw, c, conf.step_size) {
         Some((lpx, lpy, lpyaw, mode, clen)) => {
             let px: Vec<f64> = lpx
                 .iter()
                 .zip(lpy.iter())
-                .map(|(x, y)| (-syaw).cos() * x + (-syaw).sin() * y + sx)
+                .map(|(x, y)| (-conf.syaw).cos() * x + (-conf.syaw).sin() * y + conf.sx)
                 .collect();
             let py: Vec<f64> = lpx
                 .iter()
                 .zip(lpy.iter())
-                .map(|(x, y)| -(-syaw).sin() * x + (-syaw).cos() * y + sy)
+                .map(|(x, y)| -(-conf.syaw).sin() * x + (-conf.syaw).cos() * y + conf.sy)
                 .collect();
-            let pyaw: Vec<f64> = lpyaw.iter().map(|iyaw| pi_2_pi(iyaw + syaw)).collect();
+            let pyaw: Vec<f64> = lpyaw.iter().map(|iyaw| pi_2_pi(iyaw + conf.syaw)).collect();
 
             Some((px, py, pyaw, mode, clen))
         }
-        None => None,
-    }
-}
-
-pub fn dubins_path_linestring(conf: &DubinsConfig) -> Option<LineString<f64>> {
-    match dubins_path_planning(conf) {
-        Some((px, py, _, _, _)) => Some(
-            px.into_iter()
-                .zip(py.into_iter())
-                .map(|(x, y)| Coordinate { x, y })
-                .collect(),
-        ),
         None => None,
     }
 }

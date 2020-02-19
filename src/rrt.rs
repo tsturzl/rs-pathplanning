@@ -17,6 +17,7 @@ const RECURSION_LIMIT: usize = 16;
 pub struct Robot {
     width: f64,
     height: f64,
+    // turn radius
     max_steer: f64,
 }
 
@@ -287,7 +288,7 @@ fn compute_yaw(from: &Point<f64>, to: &Point<f64>) -> f64 {
 //     dubins_path_linestring(&conf).expect("Should generate a dubins line")
 // }
 
-pub fn line_to_origin(node: Arc<Node>, c: f64, step_size: f64) -> LineString<f64> {
+pub fn line_to_origin(node: Arc<Node>, turn_radius: f64, step_size: f64) -> LineString<f64> {
     let node_iter = NodeIter { curr: Some(node) };
     let l: Vec<(f64, f64)> = node_iter
         .par_bridge()
@@ -304,7 +305,7 @@ pub fn line_to_origin(node: Arc<Node>, c: f64, step_size: f64) -> LineString<f64
                     ex,
                     ey,
                     eyaw,
-                    c,
+                    turn_radius,
                     step_size,
                 };
                 match dubins_path_planning(&conf) {
@@ -520,7 +521,7 @@ impl RRT {
                         ex,
                         ey,
                         eyaw,
-                        c: self.space.get_steer(),
+                        turn_radius: self.space.get_steer(),
                         step_size: self.step_size,
                     };
                     match dubins_path_planning(&conf) {
