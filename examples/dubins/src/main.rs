@@ -2,7 +2,7 @@ extern crate gnuplot;
 extern crate pathplanning;
 
 use gnuplot::{Color, Figure};
-use pathplanning::dubins::{dubins_path_linestring, DubinsConfig};
+use pathplanning::dubins::{dubins_path_planning, DubinsConfig};
 
 fn main() {
     let mut fg = Figure::new();
@@ -17,7 +17,7 @@ fn main() {
     let end_y = -3.0;
     let end_yaw = (-45.0_f64).to_radians();
 
-    let curvature = 1.0;
+    let turn_radius = 0.5;
 
     axes.points(vec![start_x], vec![start_y], &[Color("blue")])
         .points(vec![end_x], vec![end_y], &[Color("blue")]);
@@ -29,7 +29,8 @@ fn main() {
         ex: end_x,
         ey: end_y,
         eyaw: end_yaw,
-        c: curvature,
+        step_size: 0.01,
+        turn_radius,
     };
 
     let conf2 = DubinsConfig {
@@ -39,20 +40,19 @@ fn main() {
         ex: start_x,
         ey: start_y,
         eyaw: start_yaw,
-        c: curvature,
+        step_size: 0.01,
+        turn_radius,
     };
 
     println!("Start planner");
-    match dubins_path_linestring(&conf1) {
-        Some(line) => {
-            let (px, py): (Vec<f64>, Vec<f64>) = line.points_iter().map(|p| p.x_y()).unzip();
+    match dubins_path_planning(&conf1) {
+        Some((px, py, _, _, _)) => {
             axes.lines(&px, &py, &[Color("red")]);
         }
         None => println!("Could not generate path"),
     }
-    match dubins_path_linestring(&conf2) {
-        Some(line) => {
-            let (px, py): (Vec<f64>, Vec<f64>) = line.points_iter().map(|p| p.x_y()).unzip();
+    match dubins_path_planning(&conf2) {
+        Some((px, py, _, _, _)) => {
             axes.lines(&px, &py, &[Color("red")]);
         }
         None => println!("Could not generate path"),
