@@ -197,50 +197,6 @@ fn interpolate(
     }
 }
 
-// fn generate_course(
-//     length: &[f64],
-//     mode: &[Mode],
-//     c: f64,
-//     d_angle: f64,
-//     px: &mut Vec<f64>,
-//     py: &mut Vec<f64>,
-//     pyaw: &mut Vec<f64>,
-// ) {
-//     for (m, l) in mode.iter().zip(length.iter()) {
-//         let mut pd = 0.0;
-//
-//         let mut d = d_angle;
-//
-//         if let Mode::S = m {
-//             d = 1.0 * c;
-//         }
-//
-//         while pd < (l - d).abs() {
-//             px.push(px[px.len() - 1] + d / c * pyaw[pyaw.len() - 1].cos());
-//             py.push(py[py.len() - 1] + d / c * pyaw[pyaw.len() - 1].sin());
-//
-//             match m {
-//                 Mode::L => pyaw.push(pyaw[pyaw.len() - 1] + d),
-//                 Mode::S => pyaw.push(pyaw[pyaw.len() - 1]),
-//                 Mode::R => pyaw.push(pyaw[pyaw.len() - 1] - d),
-//             }
-//             pd += d;
-//         }
-//
-//         d = l - pd;
-//
-//         px.push(px[px.len() - 1] + d / c * pyaw[pyaw.len() - 1].cos());
-//         py.push(py[py.len() - 1] + d / c * pyaw[pyaw.len() - 1].sin());
-//
-//         match m {
-//             Mode::L => pyaw.push(pyaw[pyaw.len() - 1] + d),
-//             Mode::S => pyaw.push(pyaw[pyaw.len() - 1]),
-//             Mode::R => pyaw.push(pyaw[pyaw.len() - 1] - d),
-//         }
-//         // pd += d; // unused?
-//     }
-// }
-
 fn generate_local_course(
     lengths: &[f64],
     mode: &[Mode],
@@ -261,28 +217,48 @@ fn generate_local_course(
 
     let mut ll = 0.0;
 
-    let iter = mode.iter().zip(lengths).zip(0..3).map(|a| {
-        let b = a.0;
-        (b.0, b.1, a.1)
-    });
+    mode.iter()
+        .zip(lengths)
+        .zip(0..3)
+        .map(|a| {
+            let b = a.0;
+            (b.0, b.1, a.1)
+        })
+        .for_each(|(m, l, i)| {
+            let d = if l > &0.0 { step_size } else { -step_size };
 
-    for (m, l, i) in iter {
-        let d = if l > &0.0 { step_size } else { -step_size };
+            let (origin_x, origin_y, origin_yaw) = (path_x[ind], path_y[ind], path_yaw[ind]);
 
-        let (origin_x, origin_y, origin_yaw) = (path_x[ind], path_y[ind], path_yaw[ind]);
+            ind -= 1;
+            let mut pd = if i >= 1 && (lengths[i - 1] * lengths[i]) > 0.0 {
+                -d - ll
+            } else {
+                d - ll
+            };
 
-        ind -= 1;
-        let mut pd = if i >= 1 && (lengths[i - 1] * lengths[i]) > 0.0 {
-            -d - ll
-        } else {
-            d - ll
-        };
+            while pd.abs() <= l.abs() {
+                ind += 1;
+                interpolate(
+                    ind,
+                    pd,
+                    m,
+                    max_curvature,
+                    origin_x,
+                    origin_y,
+                    origin_yaw,
+                    path_x,
+                    path_y,
+                    path_yaw,
+                    directions,
+                );
+                pd += d;
+            }
+            ll = l - pd - d;
 
-        while pd.abs() <= l.abs() {
             ind += 1;
             interpolate(
                 ind,
-                pd,
+                *l,
                 m,
                 max_curvature,
                 origin_x,
@@ -293,25 +269,7 @@ fn generate_local_course(
                 path_yaw,
                 directions,
             );
-            pd += d;
-        }
-        ll = l - pd - d;
-
-        ind += 1;
-        interpolate(
-            ind,
-            *l,
-            m,
-            max_curvature,
-            origin_x,
-            origin_y,
-            origin_yaw,
-            path_x,
-            path_y,
-            path_yaw,
-            directions,
-        );
-    }
+        });
 
     if path_x.len() <= 1 {
         path_x.clear();
@@ -389,7 +347,7 @@ pub fn dubins_path_planning_from_origin(
     let mut bcost = INFINITY;
     let (mut bt, mut bp, mut bq, mut bmode) = (None, None, None, None) as PlannerResult;
 
-    for (t, p, q, mode) in planners {
+    planners.for_each(|(t, p, q, mode)| {
         if let (Some(ot), Some(op), Some(oq)) = (t, p, q) {
             let cost = ot.abs() + op.abs() + oq.abs();
 
@@ -402,7 +360,7 @@ pub fn dubins_path_planning_from_origin(
                 bcost = cost;
             }
         }
-    }
+    });
 
     match (bt, bp, bq, bmode) {
         (Some(bt), Some(bp), Some(bq), Some(bmode)) => {
